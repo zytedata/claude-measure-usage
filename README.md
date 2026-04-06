@@ -1,53 +1,58 @@
-# skill-tracker
+# measure-usage
 
-Claude Code plugin that tracks timing, token usage, and context window for skill invocations.
+Claude Code plugin that tracks token usage, cost breakdown, and tool stats during sessions.
+
+## Usage
+
+Full session stats (no tracking needed):
+
+```
+/measure-usage session
+```
+
+Start tracking from this point:
+
+```
+/measure-usage
+```
+
+Check stats (while tracking continues):
+
+```
+/measure-usage
+```
+
+Stop tracking and save metrics:
+
+```
+/measure-usage stop
+```
 
 ## What it tracks
 
-For every skill invocation, logs to `.skill-tracker/metrics.jsonl`:
-
-- **Wall time** — duration in seconds
-- **Token usage** — input, output, cache creation, cache read (broken down)
+- **Cost breakdown** — input-equivalent tokens with percentage by type
+- **Token usage** — input, output, cache creation (5m/1h tiers), cache read
+- **Per-model breakdown** — when multiple models are used (e.g. opus + haiku)
 - **Peak context** — max tokens sent to the model in a single turn
-- **Subagent count** — how many subagents were spawned
-
-Works for both `context:fork` skills (parses subagent transcripts) and non-fork skills (parses the main transcript between tool_use and tool_result).
+- **Tool calls** — count by tool name
+- **User messages** — number of user prompts
+- **Subagents** — count and per-subagent token breakdown
 
 ## Install
 
+**Marketplace** — install once, persists across sessions:
+
 ```bash
-claude plugin add /path/to/skill-tracker
+claude plugin marketplace add /path/to/measure-usage
+claude plugin install measure-usage
 ```
 
-## Configuration
-
-By default, tracks all skills. To filter by prefix, set:
+**Direct** — load for a single session, ideal for development (changes take effect immediately):
 
 ```bash
-export SKILL_TRACKER_PREFIXES="scrape-,deploy-"
+claude --plugin-dir /path/to/measure-usage/plugins/measure-usage
 ```
 
 ## Output
 
-Each skill invocation appends one JSON line to `.skill-tracker/metrics.jsonl`:
-
-```json
-{
-  "timestamp": "2026-04-07T10:30:00Z",
-  "skill": "scrape-explore-site",
-  "args": "https://example.com",
-  "duration_s": 160.5,
-  "is_fork": true,
-  "total_tokens": 145000,
-  "peak_context_tokens": 91000,
-  "subagent_count": 3,
-  "tokens": {
-    "input_tokens": 50000,
-    "output_tokens": 30000,
-    "cache_creation_input_tokens": 5000,
-    "cache_read_input_tokens": 10000
-  }
-}
-```
-
-A summary line is also printed to stderr after each skill run.
+When tracking is stopped, metrics are saved to `.measure-usage/metrics.jsonl`.

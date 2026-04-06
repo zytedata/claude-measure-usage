@@ -1,0 +1,16 @@
+{
+  "name": "measure-usage",
+  "metadata": {
+    "description": "Plugin for tracking Claude Code session usage and costs"
+  },
+  "owner": {
+    "name": "Mikhail Korobov"
+  },
+  "plugins": [
+    {
+      "name": "measure-usage",
+      "source": "./plugins/measure-usage",
+      "description": "Track token usage, cost breakdown, and tool stats during Claude Code sessions"
+    }
+  ]
+}
