@@ -84,14 +84,13 @@ def format_metrics(metrics):
     tree = metrics.get("tree", [])
     if tree:
         main = metrics.get("main", {})
-        fmt = lambda v: _fmt_k(v, use_m=False)
         main_mac = model_aware_cost_breakdown(main.get("tokens_by_model", {}))
-        main_cost = fmt(round(main_mac["total"])) if main_mac["total"] > 0 else "0"
+        main_cost = _fmt_k(round(main_mac["total"])) if main_mac["total"] > 0 else "0"
         main_peak = main.get("peak_context_tokens", 0)
-        main_peak_str = f"  peak {fmt(main_peak)}" if main_peak else ""
+        main_peak_str = f", peak {_fmt_k(main_peak)}" if main_peak else ""
         lines.append(
-            f"Main: {main_cost}  "
-            f"{main.get('turn_count', 0)}t{main_peak_str}"
+            f"Main session: {main_cost}, "
+            f"{main.get('turn_count', 0)} turns{main_peak_str}"
         )
         lines.extend(_format_tree(tree))
 
@@ -198,31 +197,57 @@ def _fmt_duration(duration_s):
 
 
 def _format_tree(nodes, prefix="  "):
-    """Format a tree of agent nodes with box-drawing characters.
+    """Format a tree of agent nodes with aligned columns.
 
-    Returns a list of formatted lines.
+    Two-pass: collect entries, then format with aligned numbers.
     """
-    fmt = lambda v: _fmt_k(v, use_m=False)
+    entries = _collect_tree_entries(nodes, prefix)
+    if not entries:
+        return []
+
+    # Align columns
+    max_label = max(len(e[0]) for e in entries)
+    max_cost = max(len(e[1]) for e in entries)
+    max_turns = max(len(e[2]) for e in entries)
+    max_peak = max(len(e[3]) for e in entries)
+
     lines = []
+    for label, cost, turns, peak in entries:
+        peak_part = f"  peak {peak:>{max_peak}}" if peak else ""
+        lines.append(
+            f"{label:<{max_label}}  {cost:>{max_cost}}  {turns:>{max_turns}}{peak_part}"
+        )
+    return lines
+
+
+def _collect_tree_entries(nodes, prefix):
+    """Collect (label, cost, turns, peak) tuples from tree nodes."""
+    fmt = lambda v: _fmt_k(v, use_m=False)
+    entries = []
     for i, node in enumerate(nodes):
         is_last = i == len(nodes) - 1
         connector = "\u2514\u2500 " if is_last else "\u251c\u2500 "
         child_prefix = prefix + ("   " if is_last else "\u2502  ")
 
-        # Label: just the description, with fallback
-        label = node.get("call_description", "") or node.get("path", "unknown")
+        # Label with Agent/Skill prefix
+        call_tool = node.get("call_tool")
+        call_desc = node.get("call_description", "")
+        if call_tool == "Agent":
+            name = f"Agent {call_desc}" if call_desc else "Agent"
+        elif call_tool == "Skill":
+            name = f"Skill {call_desc}" if call_desc else "Skill"
+        else:
+            name = node.get("path", "unknown")
 
-        # Stats
         sub_mac = model_aware_cost_breakdown(node.get("tokens_by_model", {}))
-        cost_str = fmt(round(sub_mac["total"])) if sub_mac["total"] > 0 else "0"
-        turns = node.get("turn_count", 0)
+        cost = fmt(round(sub_mac["total"])) if sub_mac["total"] > 0 else "0"
+        turns = f"{node.get('turn_count', 0)}t"
         peak = node.get("peak_context_tokens", 0)
-        peak_str = f"  peak {fmt(peak)}" if peak else ""
-        lines.append(f"{prefix}{connector}{label}: {cost_str}  {turns}t{peak_str}")
+        peak_str = fmt(peak) if peak else ""
 
-        # Recurse into children
+        entries.append((f"{prefix}{connector}{name}", cost, turns, peak_str))
+
         children = node.get("children", [])
         if children:
-            lines.extend(_format_tree(children, child_prefix))
-
-    return lines
+            entries.extend(_collect_tree_entries(children, child_prefix))
+    return entries
