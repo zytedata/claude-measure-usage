@@ -83,16 +83,7 @@ def format_metrics(metrics):
     # Hierarchical agent tree
     tree = metrics.get("tree", [])
     if tree:
-        main = metrics.get("main", {})
-        main_mac = model_aware_cost_breakdown(main.get("tokens_by_model", {}))
-        main_cost = _fmt_k(round(main_mac["total"])) if main_mac["total"] > 0 else "0"
-        main_peak = main.get("peak_context_tokens", 0)
-        main_peak_str = f", peak {_fmt_k(main_peak)}" if main_peak else ""
-        lines.append(
-            f"Main session: {main_cost}, "
-            f"{main.get('turn_count', 0)} turns{main_peak_str}"
-        )
-        lines.extend(_format_tree(tree))
+        lines.extend(_format_tree(tree, metrics.get("main", {})))
 
     return "\n".join(lines)
 
@@ -196,32 +187,49 @@ def _fmt_duration(duration_s):
     return f"{seconds:.1f}s"
 
 
-def _format_tree(nodes, prefix="  "):
-    """Format a tree of agent nodes with aligned columns.
+def _format_tree(nodes, main=None):
+    """Format main + agent tree as a semi-table with header and aligned columns."""
+    fmt = lambda v: _fmt_k(v, use_m=False)
 
-    Two-pass: collect entries, then format with aligned numbers.
-    """
-    entries = _collect_tree_entries(nodes, prefix)
+    # Collect rows: (label, cost, turns, context)
+    entries = []
+    if main:
+        main_mac = model_aware_cost_breakdown(main.get("tokens_by_model", {}))
+        cost = fmt(round(main_mac["total"])) if main_mac["total"] > 0 else "0"
+        ctx = main.get("peak_context_tokens", 0)
+        entries.append((
+            "Main session",
+            cost,
+            str(main.get("turn_count", 0)),
+            fmt(ctx) if ctx else "",
+        ))
+    entries.extend(_collect_tree_entries(nodes, "  "))
+
     if not entries:
         return []
 
-    # Align columns
+    # Column widths
     max_label = max(len(e[0]) for e in entries)
     max_cost = max(len(e[1]) for e in entries)
     max_turns = max(len(e[2]) for e in entries)
-    max_peak = max(len(e[3]) for e in entries)
+    max_ctx = max(len(e[3]) for e in entries)
 
-    lines = []
-    for label, cost, turns, peak in entries:
-        peak_part = f"  peak {peak:>{max_peak}}" if peak else ""
-        lines.append(
-            f"{label:<{max_label}}  {cost:>{max_cost}}  {turns:>{max_turns}}{peak_part}"
+    def fmt_row(label, cost, turns, ctx):
+        return (
+            f"{label:<{max_label}}  {cost:>{max_cost}}"
+            f"  {turns:>{max_turns}}"
+            f"  {ctx:>{max_ctx}}"
         )
+
+    lines = ["Breakdown:"]
+    lines.append(fmt_row("", "tokens", "turns", "context"))
+    for entry in entries:
+        lines.append(fmt_row(*entry))
     return lines
 
 
 def _collect_tree_entries(nodes, prefix):
-    """Collect (label, cost, turns, peak) tuples from tree nodes."""
+    """Collect (label, cost, turns, context) tuples from tree nodes."""
     fmt = lambda v: _fmt_k(v, use_m=False)
     entries = []
     for i, node in enumerate(nodes):
@@ -229,7 +237,6 @@ def _collect_tree_entries(nodes, prefix):
         connector = "\u2514\u2500 " if is_last else "\u251c\u2500 "
         child_prefix = prefix + ("   " if is_last else "\u2502  ")
 
-        # Label with Agent/Skill prefix
         call_tool = node.get("call_tool")
         call_desc = node.get("call_description", "")
         if call_tool == "Agent":
@@ -241,11 +248,14 @@ def _collect_tree_entries(nodes, prefix):
 
         sub_mac = model_aware_cost_breakdown(node.get("tokens_by_model", {}))
         cost = fmt(round(sub_mac["total"])) if sub_mac["total"] > 0 else "0"
-        turns = f"{node.get('turn_count', 0)}t"
-        peak = node.get("peak_context_tokens", 0)
-        peak_str = fmt(peak) if peak else ""
+        ctx = node.get("peak_context_tokens", 0)
 
-        entries.append((f"{prefix}{connector}{name}", cost, turns, peak_str))
+        entries.append((
+            f"{prefix}{connector}{name}",
+            cost,
+            str(node.get("turn_count", 0)),
+            fmt(ctx) if ctx else "",
+        ))
 
         children = node.get("children", [])
         if children:

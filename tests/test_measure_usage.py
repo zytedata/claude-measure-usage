@@ -289,6 +289,20 @@ class TestBuildAgentTree:
 
 
 class TestFormatTree:
+    def test_has_header(self):
+        nodes = [{
+            "path": "agent-abc.jsonl", "call_tool": "Agent",
+            "call_description": "research task", "meta": {},
+            "total_tokens": 500, "turn_count": 3,
+            "tokens_by_model": {"claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
+            "children": [],
+        }]
+        lines = measure_usage._format_tree(nodes)
+        assert lines[0] == "Breakdown:"
+        assert "tokens" in lines[1]
+        assert "turns" in lines[1]
+        assert "context" in lines[1]
+
     def test_single_node(self):
         nodes = [{
             "path": "agent-abc.jsonl", "call_tool": "Agent",
@@ -298,10 +312,28 @@ class TestFormatTree:
             "children": [],
         }]
         lines = measure_usage._format_tree(nodes)
-        assert len(lines) == 1
-        assert "Agent research task" in lines[0]
-        assert "3t" in lines[0]
-        assert "\u2514\u2500" in lines[0]  # last (only) child
+        # header + column headers + 1 data row
+        assert len(lines) == 3
+        assert "Agent research task" in lines[2]
+        assert "\u2514\u2500" in lines[2]
+
+    def test_with_main(self):
+        nodes = [{
+            "path": "agent-abc.jsonl", "call_tool": "Agent",
+            "call_description": "task", "meta": {},
+            "total_tokens": 500, "turn_count": 3,
+            "tokens_by_model": {"claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
+            "children": [],
+        }]
+        main = {"tokens_by_model": {"claude-sonnet-4-6": {
+            "input_tokens": 100, "output_tokens": 50,
+            "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+        }}, "turn_count": 5, "peak_context_tokens": 1000}
+        lines = measure_usage._format_tree(nodes, main)
+        # header + column headers + main row + 1 data row
+        assert len(lines) == 4
+        assert "Main session" in lines[2]
+        assert "Agent task" in lines[3]
 
     def test_nested(self):
         nodes = [{
@@ -318,10 +350,9 @@ class TestFormatTree:
             }],
         }]
         lines = measure_usage._format_tree(nodes)
-        assert len(lines) == 2
-        assert "Agent analyze pages" in lines[0]
-        assert "Skill scrape-page" in lines[1]
-        assert "\u2514\u2500" in lines[1]
+        text = "\n".join(lines)
+        assert "Agent analyze pages" in text
+        assert "Skill scrape-page" in text
 
     def test_multiple_siblings(self):
         node = lambda desc, tool="Agent": {
@@ -333,11 +364,10 @@ class TestFormatTree:
         }
         nodes = [node("first"), node("second"), node("third", "Skill")]
         lines = measure_usage._format_tree(nodes)
-        assert len(lines) == 3
+        text = "\n".join(lines)
         # First two use ├─, last uses └─
-        assert "\u251c\u2500" in lines[0]
-        assert "\u251c\u2500" in lines[1]
-        assert "\u2514\u2500" in lines[2]
+        assert "\u251c\u2500" in text
+        assert "\u2514\u2500" in text
 
 
 class TestComputeToolCosts:
@@ -756,12 +786,15 @@ class TestFormatMetrics:
             ],
         ))
         assert "Subagents: 2" in text
-        assert "Main session:" in text
+        assert "Breakdown:" in text
+        assert "Main session" in text
         assert "Agent research task" in text
         assert "Skill analyze-page" in text
         assert "Skill scrape-data" in text
-        # Tree chars
+        # Tree chars and column headers
         assert "\u251c\u2500" in text or "\u2514\u2500" in text
+        assert "tokens" in text
+        assert "context" in text
 
     def test_server_tool_use(self):
         text = measure_usage.format_metrics(self._make_metrics(
