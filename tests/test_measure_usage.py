@@ -299,8 +299,8 @@ class TestFormatTree:
         }]
         lines = measure_usage._format_tree(nodes)
         assert len(lines) == 1
-        assert 'Agent "research task"' in lines[0]
-        assert "3 turns" in lines[0]
+        assert "research task" in lines[0]
+        assert "3t" in lines[0]
         assert "\u2514\u2500" in lines[0]  # last (only) child
 
     def test_nested(self):
@@ -319,8 +319,8 @@ class TestFormatTree:
         }]
         lines = measure_usage._format_tree(nodes)
         assert len(lines) == 2
-        assert 'Agent "analyze pages"' in lines[0]
-        assert "Skill scrape-page" in lines[1]
+        assert "analyze pages" in lines[0]
+        assert "scrape-page" in lines[1]
         assert "\u2514\u2500" in lines[1]
 
     def test_multiple_siblings(self):
@@ -756,10 +756,10 @@ class TestFormatMetrics:
             ],
         ))
         assert "Subagents: 2" in text
-        assert "Main session:" in text
-        assert 'Agent "research task"' in text
-        assert "Skill analyze-page" in text
-        assert "Skill scrape-data" in text
+        assert "Main:" in text
+        assert "research task" in text
+        assert "analyze-page" in text
+        assert "scrape-data" in text
         # Tree chars
         assert "\u251c\u2500" in text or "\u2514\u2500" in text
 

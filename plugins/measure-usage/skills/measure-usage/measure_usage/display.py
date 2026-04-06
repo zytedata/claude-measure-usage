@@ -84,13 +84,14 @@ def format_metrics(metrics):
     tree = metrics.get("tree", [])
     if tree:
         main = metrics.get("main", {})
+        fmt = lambda v: _fmt_k(v, use_m=False)
         main_mac = model_aware_cost_breakdown(main.get("tokens_by_model", {}))
-        main_cost = _fmt_k(round(main_mac["total"])) if main_mac["total"] > 0 else "0"
+        main_cost = fmt(round(main_mac["total"])) if main_mac["total"] > 0 else "0"
         main_peak = main.get("peak_context_tokens", 0)
-        main_peak_str = f", peak {_fmt_k(main_peak)} ctx" if main_peak else ""
+        main_peak_str = f"  peak {fmt(main_peak)}" if main_peak else ""
         lines.append(
-            f"Main session: {main_cost}, "
-            f"{main.get('turn_count', 0)} turns{main_peak_str}"
+            f"Main: {main_cost}  "
+            f"{main.get('turn_count', 0)}t{main_peak_str}"
         )
         lines.extend(_format_tree(tree))
 
@@ -167,9 +168,12 @@ def _format_tool_table(lines, metrics):
         lines.append(fmt_row(row))
 
 
-def _fmt_k(tokens):
-    """Format a token count compactly: 150, 1.5K, 2.3M."""
-    if tokens >= 1_000_000:
+def _fmt_k(tokens, use_m=True):
+    """Format a token count compactly: 150, 1.5K, 2.3M.
+
+    Set use_m=False to keep everything in K (better for unsorted lists).
+    """
+    if use_m and tokens >= 1_000_000:
         return f"{tokens / 1_000_000:.1f}M"
     if tokens >= 1000:
         return f"{tokens / 1000:.1f}K"
@@ -198,30 +202,23 @@ def _format_tree(nodes, prefix="  "):
 
     Returns a list of formatted lines.
     """
+    fmt = lambda v: _fmt_k(v, use_m=False)
     lines = []
     for i, node in enumerate(nodes):
         is_last = i == len(nodes) - 1
         connector = "\u2514\u2500 " if is_last else "\u251c\u2500 "
         child_prefix = prefix + ("   " if is_last else "\u2502  ")
 
-        # Label
-        call_tool = node.get("call_tool")
-        call_desc = node.get("call_description", "")
-        if call_tool == "Agent":
-            label = f'Agent "{call_desc}"' if call_desc else "Agent"
-        elif call_tool == "Skill":
-            label = f"Skill {call_desc}" if call_desc else "Skill"
-        else:
-            label = node.get("path", "unknown")
+        # Label: just the description, with fallback
+        label = node.get("call_description", "") or node.get("path", "unknown")
 
-        # Cost
+        # Stats
         sub_mac = model_aware_cost_breakdown(node.get("tokens_by_model", {}))
-        cost_str = _fmt_k(round(sub_mac["total"])) if sub_mac["total"] > 0 else "0"
-
+        cost_str = fmt(round(sub_mac["total"])) if sub_mac["total"] > 0 else "0"
         turns = node.get("turn_count", 0)
         peak = node.get("peak_context_tokens", 0)
-        peak_str = f", peak {_fmt_k(peak)} ctx" if peak else ""
-        lines.append(f"{prefix}{connector}{label}: {cost_str}, {turns} turns{peak_str}")
+        peak_str = f"  peak {fmt(peak)}" if peak else ""
+        lines.append(f"{prefix}{connector}{label}: {cost_str}  {turns}t{peak_str}")
 
         # Recurse into children
         children = node.get("children", [])
