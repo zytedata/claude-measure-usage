@@ -17,7 +17,8 @@ def format_metrics(metrics):
     tokens_by_model = metrics.get("tokens_by_model", {})
     mac = model_aware_cost_breakdown(tokens_by_model)
     if mac["total"] > 0:
-        lines.append(f"Tokens: {_fmt_k(round(mac['total']))} (Sonnet input-equivalent)")
+        total = mac["total"]
+        lines.append(f"Tokens: {_fmt_k(round(total))} (Sonnet input-equivalent)")
         cats = mac["categories"]
 
         cost_items = []
@@ -42,20 +43,29 @@ def format_metrics(metrics):
             cost_items.append((cats["input"], "Input", None))
 
         cost_items.sort(key=lambda x: -x[0])
+        max_pct_len = max(len(f"{v / total * 100:.0f}%") for v, _, _ in cost_items)
         for val, label, is_composite in cost_items:
+            pct = f"{val / total * 100:.0f}%"
             if is_composite:
-                lines.append(f"  {label}")
+                lines.append(f"  {pct:>{max_pct_len}}  {label}")
             else:
-                lines.append(f"  {label}: {_fmt_k(round(val))}")
+                lines.append(f"  {pct:>{max_pct_len}}  {label}: {_fmt_k(round(val))}")
 
     # Per-model breakdown (only if multiple models)
     if len(tokens_by_model) > 1:
         lines.append("By model:")
+        model_rows = []
         for model, mtokens in sorted(tokens_by_model.items()):
             scale = _model_cost_scale(model)
             mc = cost_breakdown(mtokens)
             scaled = round(mc["total"] * scale)
-            lines.append(f"  {_short_model(model)}: {_fmt_k(scaled)}")
+            pct = scaled / total * 100 if total > 0 else 0
+            model_rows.append((pct, _short_model(model), scaled))
+        model_rows.sort(key=lambda x: -x[0])
+        max_mpct = max(len(f"{p:.0f}%") for p, _, _ in model_rows)
+        max_mval = max(len(_fmt_k(v)) for _, _, v in model_rows)
+        for pct, name, val in model_rows:
+            lines.append(f"  {f'{pct:.0f}%':>{max_mpct}}  {name}: {_fmt_k(val):>{max_mval}}")
 
     # Context
     if metrics.get("peak_context_tokens"):
@@ -65,9 +75,6 @@ def format_metrics(metrics):
     lines.append(f"Model turns: {metrics['turn_count']}")
     if metrics.get("user_message_count"):
         lines.append(f"User messages: {metrics['user_message_count']}")
-    if metrics.get("subagent_count"):
-        lines.append(f"Subagents: {metrics['subagent_count']}")
-
     # Tool calls table
     _format_tool_table(lines, metrics)
 
