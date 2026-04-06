@@ -208,11 +208,12 @@ def _format_tree(nodes, main=None):
     if not entries:
         return []
 
-    # Column widths
-    max_label = max(len(e[0]) for e in entries)
-    max_cost = max(len(e[1]) for e in entries)
-    max_turns = max(len(e[2]) for e in entries)
-    max_ctx = max(len(e[3]) for e in entries)
+    # Column widths (include headers)
+    headers = ("", "tokens", "turns", "context")
+    max_label = max(len(headers[0]), max(len(e[0]) for e in entries))
+    max_cost = max(len(headers[1]), max(len(e[1]) for e in entries))
+    max_turns = max(len(headers[2]), max(len(e[2]) for e in entries))
+    max_ctx = max(len(headers[3]), max(len(e[3]) for e in entries))
 
     def fmt_row(label, cost, turns, ctx):
         return (
@@ -222,7 +223,7 @@ def _format_tree(nodes, main=None):
         )
 
     lines = ["Breakdown:"]
-    lines.append(fmt_row("", "tokens", "turns", "context"))
+    lines.append(fmt_row(*headers))
     for entry in entries:
         lines.append(fmt_row(*entry))
     return lines
