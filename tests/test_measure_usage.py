@@ -724,8 +724,8 @@ class TestFormatMetrics:
         assert "2.1K" in text
         assert "est." in text
         # Semi-table with header
-        assert "call" in text
-        assert "ctx" in text
+        assert "invoke" in text
+        assert "carry" in text
 
     def test_tool_costs_small(self):
         text = measure_usage.format_metrics(self._make_metrics(

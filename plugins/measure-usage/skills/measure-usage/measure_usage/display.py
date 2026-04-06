@@ -111,9 +111,9 @@ def _format_tool_table(lines, metrics):
         row = {
             "name": tool,
             "total": _fmt_k(round(tc.get("total", 0))) if tc else "",
-            "call": _fmt_k(round(tc.get("marginal", 0))) if tc else "",
-            "ctx": _fmt_k(round(tc.get("accumulated", 0))) if tc else "",
-            "calls": str(count),
+            "invoke": _fmt_k(round(tc.get("marginal", 0))) if tc else "",
+            "carry": _fmt_k(round(tc.get("accumulated", 0))) if tc else "",
+            "count": str(count),
             "wall": _fmt_duration(wall_times[tool]) if tool in wall_times else "",
         }
         rows.append(row)
@@ -122,9 +122,9 @@ def _format_tool_table(lines, metrics):
     cols = [("name", "")]
     if has_costs:
         cols.append(("total", "total"))
-        cols.append(("call", "call"))
-        cols.append(("ctx", "ctx"))
-    cols.append(("calls", "calls"))
+        cols.append(("invoke", "invoke"))
+        cols.append(("carry", "carry"))
+    cols.append(("count", "count"))
     if has_wall:
         cols.append(("wall", "wall"))
 
