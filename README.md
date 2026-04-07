@@ -4,22 +4,22 @@ Claude Code plugin that tracks token usage, cost breakdown, and tool stats durin
 
 ## Usage
 
-Full session stats (no tracking needed):
+Full session stats (default, no tracking needed):
 
 ```
-/measure-usage session
+/measure-usage
 ```
 
 Start tracking from this point:
 
 ```
-/measure-usage
+/measure-usage start
 ```
 
 Check stats (while tracking continues):
 
 ```
-/measure-usage
+/measure-usage stats
 ```
 
 Stop tracking and save metrics:
