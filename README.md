@@ -30,7 +30,7 @@ Stop tracking and save metrics:
 
 ## What it tracks
 
-- **Cost breakdown** — Sonnet input-equivalent tokens with percentage by type
+- **Cost breakdown** — [Sonnet input-equivalent](#token-cost-sonnet-input-equivalent) tokens with percentage by type
 - **Token usage** — input, output, cache creation (5m/1h tiers), cache read
 - **Per-model breakdown** — when multiple models are used (e.g. opus + haiku)
 - **Peak context** — max tokens sent to the model in a single turn
@@ -85,19 +85,34 @@ Main session                               12627.1K    231   148.5K
 
 ### Token cost (Sonnet input-equivalent)
 
-All costs are normalized to **Sonnet input token equivalents**, making it easy to compare
-across models and token types. The ratios within a model are consistent:
+Raw token counts are hard to reason about — 100K cache-read tokens cost 10x less
+than 100K output tokens, and the same tokens on Opus cost 5x more than on Sonnet.
+**Sonnet input-equivalent** is a single normalized unit that accounts for both
+token type and model, so you can compare and sum everything directly.
 
-| Type | Multiplier |
-|------|-----------|
-| Cache read | 0.1x |
-| Input | 1x |
-| Cache write (5m) | 1.25x |
-| Cache write (1h) | 2x |
-| Output | 5x |
+The conversion works in two steps:
 
-When multiple models are used, costs are further scaled by each model's relative
-input price (Opus = 5x Sonnet, Haiku = 0.267x Sonnet).
+**1. Token type multipliers** (consistent across all Claude models, based on
+the ratio of per-type prices to the input price):
+
+| Type | Multiplier | Why |
+|------|-----------|-----|
+| Cache read | 0.1x | Cheapest — reusing cached context |
+| Input | 1x | Baseline |
+| Cache write (5m) | 1.25x | Writing to short-lived cache |
+| Cache write (1h) | 2x | Writing to longer-lived cache |
+| Output | 5x | Most expensive — model generation |
+
+**2. Model scaling** (when multiple models are used in a session):
+
+| Model | Scale | Input price |
+|-------|-------|-------------|
+| Haiku | 0.267x | $0.80/M |
+| Sonnet | 1x | $3/M |
+| Opus | 5x | $15/M |
+
+So 1000 output tokens on Opus = 1000 × 5 (output) × 5 (opus) = 25,000 Sonnet
+input-equivalent tokens. This makes it easy to see where money is actually going.
 
 ### Tool cost estimates
 
