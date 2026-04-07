@@ -23,4 +23,4 @@ Run one of these commands based on `$ARGUMENTS`:
   cd "${CLAUDE_SKILL_DIR}" && python3 -m measure_usage start "${CLAUDE_SESSION_ID}"
   ```
 
-Show the script output to the user as-is.
+The script output is already visible to the user via the Bash tool. Do not repeat it.
