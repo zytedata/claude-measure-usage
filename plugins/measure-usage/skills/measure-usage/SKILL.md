@@ -23,4 +23,4 @@ Run one of these commands based on `$ARGUMENTS`:
   cd "${CLAUDE_SKILL_DIR}" && python3 -m measure_usage start "${CLAUDE_SESSION_ID}"
   ```
 
-Summarize the key numbers in 1-2 lines (total cost, top cost driver, duration). Don't repeat the full output — it's visible in the collapsed Bash result.
+Show the script output to the user as-is (the Bash result is collapsed by default).
