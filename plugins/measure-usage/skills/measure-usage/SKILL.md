@@ -28,4 +28,4 @@ Run one of these commands based on `$ARGUMENTS`:
   cd "${CLAUDE_SKILL_DIR}" && python3 -m measure_usage session "${CLAUDE_SESSION_ID}"
   ```
 
-Show the script output to the user as-is (the Bash result is collapsed by default).
+Don't repeat the full output. Instead, summarize the key takeaways: total cost, top cost drivers, anything notable (e.g. a subagent using more than main, high context usage). Mention that full details are in the collapsed Bash output above.
