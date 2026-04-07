@@ -1,6 +1,6 @@
 ---
 name: measure-usage
-description: Track token usage, cost breakdown, and tool stats during a Claude Code session. Use when the user asks about token usage, session cost, how expensive something was, or wants to measure/monitor resource consumption. No args = full session stats. "start" = begin tracking from this point. "stop" = stop tracking and save. "stats" = check tracked stats.
+description: Track token usage, cost breakdown, and tool stats during a Claude Code session. Use when the user asks about token usage, session cost, how expensive something was, how many tokens, what the context window looks like, or wants to measure/monitor resource consumption. Also trigger for "show usage", "how much did that cost", "what did I spend", "session stats", "show me the breakdown", "how many turns". No args = full session stats. "start" = begin tracking from this point. "stop" = stop tracking and save. "stats" = check tracked stats.
 tools: Bash
 ---
 
