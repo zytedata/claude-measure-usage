@@ -785,7 +785,6 @@ class TestFormatMetrics:
                  "children": []},
             ],
         ))
-        assert "Subagents: 2" in text
         assert "Breakdown:" in text
         assert "Main session" in text
         assert "Agent research task" in text

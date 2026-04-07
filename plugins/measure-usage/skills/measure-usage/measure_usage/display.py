@@ -43,9 +43,9 @@ def format_metrics(metrics):
             cost_items.append((cats["input"], "Input", None))
 
         cost_items.sort(key=lambda x: -x[0])
-        max_pct_len = max(len(f"{v / total * 100:.0f}%") for v, _, _ in cost_items)
-        for val, label, is_composite in cost_items:
-            pct = f"{val / total * 100:.0f}%"
+        pct_strs = [_fmt_pct(v / total * 100) for v, _, _ in cost_items]
+        max_pct_len = max(len(s) for s in pct_strs)
+        for (val, label, is_composite), pct in zip(cost_items, pct_strs):
             if is_composite:
                 lines.append(f"  {pct:>{max_pct_len}}  {label}")
             else:
@@ -62,10 +62,11 @@ def format_metrics(metrics):
             pct = scaled / total * 100 if total > 0 else 0
             model_rows.append((pct, _short_model(model), scaled))
         model_rows.sort(key=lambda x: -x[0])
-        max_mpct = max(len(f"{p:.0f}%") for p, _, _ in model_rows)
+        pct_strs = [_fmt_pct(p) for p, _, _ in model_rows]
+        max_mpct = max(len(s) for s in pct_strs)
         max_mval = max(len(_fmt_k(v)) for _, _, v in model_rows)
-        for pct, name, val in model_rows:
-            lines.append(f"  {f'{pct:.0f}%':>{max_mpct}}  {name}: {_fmt_k(val):>{max_mval}}")
+        for (pct, name, val), ps in zip(model_rows, pct_strs):
+            lines.append(f"  {ps:>{max_mpct}}  {name}: {_fmt_k(val):>{max_mval}}")
 
     # Context
     if metrics.get("peak_context_tokens"):
@@ -163,6 +164,13 @@ def _format_tool_table(lines, metrics):
 
     for row in rows:
         lines.append(fmt_row(row))
+
+
+def _fmt_pct(pct):
+    """Format a percentage: '<1%' for small non-zero values, else '42%'."""
+    if 0 < pct < 1:
+        return "<1%"
+    return f"{pct:.0f}%"
 
 
 def _fmt_k(tokens, use_m=True):
