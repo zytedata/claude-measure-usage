@@ -235,14 +235,29 @@ class TestFindSubagentTranscripts:
 # ---------------------------------------------------------------------------
 
 class TestModelCostScale:
-    def test_opus(self):
-        assert measure_usage._model_cost_scale("claude-opus-4-6") == 5.0
+    def test_opus_current(self):
+        assert measure_usage._model_cost_scale("claude-opus-4-6") == pytest.approx(5 / 3)
+        assert measure_usage._model_cost_scale("claude-opus-4-5-20250301") == pytest.approx(5 / 3)
+
+    def test_opus_future(self):
+        assert measure_usage._model_cost_scale("claude-opus-5-0") == pytest.approx(5 / 3)
+
+    def test_opus_legacy(self):
+        assert measure_usage._model_cost_scale("claude-opus-4-1-20250414") == 5.0
+        assert measure_usage._model_cost_scale("claude-3-opus-20240229") == 5.0
 
     def test_sonnet(self):
         assert measure_usage._model_cost_scale("claude-sonnet-4-6") == 1.0
 
-    def test_haiku(self):
-        assert measure_usage._model_cost_scale("claude-haiku-4-5-20251001") == 0.267
+    def test_haiku_current(self):
+        assert measure_usage._model_cost_scale("claude-haiku-4-5-20251001") == pytest.approx(1 / 3)
+
+    def test_haiku_future(self):
+        assert measure_usage._model_cost_scale("claude-haiku-5-0") == pytest.approx(1 / 3)
+
+    def test_haiku_legacy(self):
+        assert measure_usage._model_cost_scale("claude-3-5-haiku-20241022") == pytest.approx(0.267)
+        assert measure_usage._model_cost_scale("claude-3-haiku-20240307") == pytest.approx(0.267)
 
     def test_unknown_defaults_to_sonnet(self):
         assert measure_usage._model_cost_scale("unknown") == 1.0
@@ -389,10 +404,11 @@ class TestComputeToolCosts:
              "output_est": 10, "input_est": 100, "result_turn": 1},
         ]
         costs = measure_usage.compute_tool_costs(invocations, total_turns=3)
-        # marginal: (10*5 + 100) * 5.0 = 750
-        assert costs["Read"]["marginal"] == 750
-        # accumulated: 100 * 0.1 * 5.0 * 1 = 50
-        assert costs["Read"]["accumulated"] == 50
+        scale = 5 / 3  # Opus 4.6: $5 / $3
+        # marginal: (10*5 + 100) * scale = 250
+        assert costs["Read"]["marginal"] == pytest.approx(150 * scale)
+        # accumulated: 100 * 0.1 * scale * 1
+        assert costs["Read"]["accumulated"] == pytest.approx(10 * scale)
 
     def test_no_accumulated_for_last_turn(self):
         invocations = [

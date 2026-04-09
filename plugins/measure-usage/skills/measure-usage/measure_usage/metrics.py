@@ -17,18 +17,28 @@ from .parse import (
 # Model input price relative to Sonnet ($3/M input tokens).
 # Within-model ratios (output=5x, cache_read=0.1x, etc.) are consistent
 # across models; only the base input price differs.
-_MODEL_SCALES = {
-    "opus": 5.0,      # $15 / $3
-    "sonnet": 1.0,    # $3 / $3
-    "haiku": 0.267,   # $0.80 / $3
-}
+# Checked in order — more specific patterns first.
+_MODEL_SCALES = [
+    # Legacy Opus ($15/MTok input)
+    ("opus-4-1", 5.0),       # claude-opus-4-1-20250414
+    ("3-opus", 5.0),          # claude-3-opus-20240229
+    # Current / future Opus ($5/MTok input)
+    ("opus", 5 / 3),
+    # Sonnet — all versions ($3/MTok input)
+    ("sonnet", 1.0),
+    # Legacy Haiku ($0.80/MTok input)
+    ("3-5-haiku", 0.267),    # claude-3-5-haiku-20241022
+    ("3-haiku", 0.267),       # claude-3-haiku-20240307
+    # Current / future Haiku ($1/MTok input)
+    ("haiku", 1 / 3),
+]
 
 
 def _model_cost_scale(model_name):
     """Cost scale relative to Sonnet input price."""
     name = model_name.lower()
-    for key, scale in _MODEL_SCALES.items():
-        if key in name:
+    for pattern, scale in _MODEL_SCALES:
+        if pattern in name:
             return scale
     return 1.0
 

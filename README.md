@@ -41,44 +41,44 @@ Stop tracking and save metrics:
 ## Example output
 
 ```
-Duration: 146m 50s
-Tokens: 33.1M (Sonnet input-equivalent)
-  52%  Cache read: 17.1M
-  33%  Cache write: 8.3M (5m) + 2.7M (1h)
-  15%  Output: 4.9M
-  <1%  Input: 108.9K
+Duration: 89m 3s
+Tokens: 11.0M (Sonnet input-equivalent)
+  52%  Cache read: 5.7M
+  33%  Cache write: 2.8M (5m) + 914.9K (1h)
+  15%  Output: 1.6M
+  <1%  Input: 36.3K
 Peak context: 148.5K
 Model turns: 962
 User messages: 46
 Tool calls (cost est.):
                     total  invoke   carry  count     wall
-  Bash               4.2M    2.3M    2.0M    336   15m 2s
-  Read               3.0M  824.9K    2.2M    160    46.1s
-  Write            699.4K  683.7K   15.8K     17     3.1s
-  Agent            456.5K   68.3K  388.2K     16  44m 35s
-  Grep             246.0K   52.9K  193.2K     35     0.8s
-  Skill            170.0K   91.3K   78.8K     28   48m 1s
-  Edit              91.8K   51.8K   40.0K     17     0.4s
-  Glob              10.4K    5.2K    5.2K      6     0.3s
+  Bash               1.4M  751.2K  650.4K    336   15m 2s
+  Read               1.0M  275.0K  730.8K    160    46.1s
+  Write            233.1K  227.9K    5.3K     17     3.1s
+  Agent            152.2K   22.8K  129.4K     16  44m 35s
+  Grep              82.0K   17.6K   64.4K     35     0.8s
+  Skill             56.7K   30.4K   26.3K     28   48m 1s
+  Edit              30.6K   17.3K   13.3K     17     0.4s
+  Glob               3.5K    1.7K    1.7K      6     0.3s
 Breakdown:
-                                             tokens  turns  context
-Main session                               12627.1K    231   148.5K
-  ├─ Agent codegen-analyze list-1             79.6K      2     9.9K
-  │  └─ Skill scrape-codegen-analyze        1544.4K     50    49.6K
-  ├─ Agent codegen-analyze list-2             71.9K      2    10.0K
-  │  └─ Skill scrape-codegen-analyze        2010.2K     71    51.4K
-  ├─ Skill scrape-explore-site              1761.0K     80    40.0K
-  ├─ Agent codegen-analyze list-3             35.7K      2    10.1K
-  │  └─ Skill scrape-codegen-analyze        2387.4K     64    64.3K
-  ├─ Agent codegen-analyze detail-1           90.1K      2    10.5K
-  │  └─ Skill scrape-codegen-analyze        1282.7K     45    39.5K
+                                            tokens  turns  context
+Main session                               4209.0K    231   148.5K
+  ├─ Agent codegen-analyze list-1            26.5K      2     9.9K
+  │  └─ Skill scrape-codegen-analyze        514.8K     50    49.6K
+  ├─ Agent codegen-analyze list-2            24.0K      2    10.0K
+  │  └─ Skill scrape-codegen-analyze        670.1K     71    51.4K
+  ├─ Skill scrape-explore-site              587.0K     80    40.0K
+  ├─ Agent codegen-analyze list-3            11.9K      2    10.1K
+  │  └─ Skill scrape-codegen-analyze        795.8K     64    64.3K
+  ├─ Agent codegen-analyze detail-1          30.0K      2    10.5K
+  │  └─ Skill scrape-codegen-analyze        427.6K     45    39.5K
   └─ ...
 ```
 
-> **Summary:** 33.1M Sonnet-equivalent tokens across 962 turns. Cache dominates
-> (52% read + 33% write). Subagents used more than the main session — the three
-> `scrape-codegen-analyze` list skills alone account for ~6M tokens.
-> `codegen-analyze list-3` has the highest context at 64.3K.
+> **Summary:** 11.0M Sonnet-equivalent tokens across 962 turns in ~89 minutes.
+> Cache dominates (52% read + 33% write). Subagents used more than the main
+> session — the three `scrape-codegen-analyze` list skills alone account for ~2M
+> tokens. `codegen-analyze list-3` has the highest context at 64.3K.
 > Full details in the collapsed Bash output above.
 
 ## How costs are calculated
@@ -107,12 +107,14 @@ the ratio of per-type prices to the input price):
 
 | Model | Scale | Input price |
 |-------|-------|-------------|
-| Haiku | 0.267x | $0.80/M |
+| Haiku | 0.33x | $1/M |
 | Sonnet | 1x | $3/M |
-| Opus | 5x | $15/M |
+| Opus | 1.67x | $5/M |
 
-So 1000 output tokens on Opus = 1000 × 5 (output) × 5 (opus) = 25,000 Sonnet
-input-equivalent tokens. This makes it easy to see where money is actually going.
+So 1000 output tokens on Opus = 1000 × 5 (output) × 1.67 (opus) = 8,350
+Sonnet input-equivalent tokens. This makes it easy to see where money is actually
+going. Legacy models (Opus 4.1 and earlier, Haiku 3.5 and earlier) are also
+supported at their original prices.
 
 ### Tool cost estimates
 
