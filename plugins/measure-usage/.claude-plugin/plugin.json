@@ -1,6 +1,6 @@
 {
   "name": "measure-usage",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Track token usage, cost breakdown, and tool stats during Claude Code sessions",
   "author": {
     "name": "Mikhail Korobov"
