@@ -37,12 +37,19 @@ project screen  ──↵──▶  session screen  ──↵──▶  session 
                                                        ↵ on subagent row
                                                        ▼
                                                  session detail  (drill deeper, stack grows)
-                                                       ◀──esc/◀──
+                                                       ◀──esc──
 ```
 
 Every screen is a full-screen Textual `Screen`. The detail-screen
 stack grows arbitrarily deep when drilling into nested subagents;
-`esc` / `←` always pops exactly one level.
+`esc` always pops exactly one level.
+
+`←` / `→` are **not** bound as back/forward. Textual's DataTable
+in row-cursor mode uses those keys to scroll horizontally when the
+table overflows — which happens whenever the terminal is narrower
+than the column set. Giving the same key two different meanings
+depending on terminal width would be worse than a single canonical
+back key, so we stay on `esc` alone.
 
 ### Screen 1 — project picker
 
@@ -305,7 +312,7 @@ All dismissible with `esc`.
 |---|---|
 | `↑` / `↓` | Move cursor |
 | `↵` | Open detail modal for focused row; ↵ on a subagent row drills into its screen |
-| `esc` / `←` | Back one level (modal → table → session list → project list) |
+| `esc` | Back one level (modal → table → session list → project list) |
 | `s` | Cycle sort |
 | `/` | Filter |
 | `r` | Reload transcript from disk |

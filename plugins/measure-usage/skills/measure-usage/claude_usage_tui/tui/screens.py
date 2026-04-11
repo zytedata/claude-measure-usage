@@ -113,9 +113,14 @@ class SessionScreen(Screen):
     (``Esc`` to go back cancels the worker and pops the screen).
     """
 
+    # ``←`` / ``→`` are intentionally NOT bound for navigation: on
+    # narrow terminals the table overflows horizontally and the
+    # DataTable uses those keys to scroll its content into view.
+    # Binding them at the screen level would give the same key two
+    # different meanings depending on terminal width — worse than
+    # just requiring ``Esc`` for back.
     BINDINGS = [
         Binding("escape", "back", "Back"),
-        Binding("left", "back", "Back", show=False),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
     ]
