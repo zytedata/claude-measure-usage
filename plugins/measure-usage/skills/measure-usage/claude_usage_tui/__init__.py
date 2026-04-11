@@ -1,4 +1,12 @@
-"""Measure token usage during Claude Code sessions."""
+"""Measure token usage during Claude Code sessions.
+
+Two presentation layers sit on top of a shared data layer:
+
+- :mod:`claude_usage_tui.plain` — non-interactive text renderer used
+  by the ``/measure-usage`` Claude Code skill.
+- :mod:`claude_usage_tui.tui` — interactive Textual UI (not imported
+  here, so ``import claude_usage_tui`` never pulls Textual in).
+"""
 
 # Re-export public API for convenience and test compatibility
 from .parse import (
@@ -29,17 +37,16 @@ from .metrics import (
 )
 
 from .turns_label import short_agent_id, turn_label
-from .turns_table import render_turns_report
 from .nonturn_rows import build_nonturn_label
 
-from .display import (
+from .plain.turns_table import render_turns_report
+from .plain.display import (
     format_metrics,
     _format_tree,
     _fmt_k,
     _fmt_duration,
 )
-
-from .state import (
+from .plain.state import (
     STATE_DIR,
     SESSIONS_DIR,
     state_path,

@@ -1,6 +1,6 @@
 """Formatting metrics for human-readable output."""
 
-from .metrics import (
+from ..metrics import (
     _model_cost_scale,
     cost_breakdown,
     model_aware_cost_breakdown,

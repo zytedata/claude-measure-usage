@@ -15,14 +15,14 @@ shows its own cost plus everything the subagent did.
 """
 
 from .display import _fmt_k, _tiny_model
-from .metrics import (
+from ..metrics import (
     compute_caused_by_turn,
     model_aware_cost_breakdown,
     turn_inherit_seq,
     turn_own_seq,
     turn_seq,
 )
-from .turns_label import short_agent_id, turn_label
+from ..turns_label import short_agent_id, turn_label
 
 
 # Column layout for the per-turn table.

@@ -1,12 +1,12 @@
-"""CLI entry point for measure_usage."""
+"""Text-mode CLI commands for the /measure-usage skill."""
 
 import sys
 import time
 from datetime import datetime, timezone
 
 from .display import format_metrics
-from .metrics import compute_metrics
-from .parse import (
+from ..metrics import compute_metrics
+from ..parse import (
     find_transcript_path,
     find_subagent_transcripts,
     build_agent_tree,
@@ -177,7 +177,7 @@ def cmd_session(session_id):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: measure_usage <command> [session_id]")
+        print("Usage: python -m claude_usage_tui.plain <command> [session_id]")
         print("Commands: start, stats, stop, session, turns")
         sys.exit(1)
 

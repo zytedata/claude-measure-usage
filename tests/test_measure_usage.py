@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-# Add scripts dir to path so we can import measure_usage
+# Add scripts dir to path so we can import claude_usage_tui
 PACKAGE_DIR = str(Path(__file__).parent.parent / "plugins" / "measure-usage" / "skills" / "measure-usage")
 sys.path.insert(0, PACKAGE_DIR)
 
-import measure_usage
-from measure_usage import __main__ as mu_commands
+import claude_usage_tui as measure_usage  # noqa: E402
+from claude_usage_tui.plain import commands as mu_commands  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -1356,7 +1356,7 @@ class TestNonturnRows:
         """Per-turn caused_seq attribution must stop at
         ``system:compact_boundary``: turns before the boundary cannot
         inherit their cache_w into turns after it."""
-        from measure_usage.metrics import compute_caused_by_turn
+        from claude_usage_tui.metrics import compute_caused_by_turn
 
         def mk_turn(n, cache_w=0):
             return {
@@ -1389,7 +1389,7 @@ class TestNonturnRows:
         """compute_tool_costs should respect compact_boundary when
         ``rows`` is supplied — a tool result from before a
         compaction is not billed against turns after it."""
-        from measure_usage.metrics import compute_tool_costs
+        from claude_usage_tui.metrics import compute_tool_costs
 
         invocations = [
             {
@@ -1676,3 +1676,38 @@ class TestTurnSeq:
         }
         # 100 * 5/3 = 166.666...
         assert measure_usage.turn_seq(row) == pytest.approx(100 * 5 / 3)
+
+
+# ---------------------------------------------------------------------------
+# Layering: the plain CLI must never pull in Textual
+# ---------------------------------------------------------------------------
+
+class TestPlainDoesNotImportTextual:
+    """The /measure-usage skill runs `python -m claude_usage_tui.plain`
+    and must not load Textual as a side effect — the skill environment
+    doesn't need (and shouldn't require) a GUI dependency.
+
+    Runs in a fresh subprocess so earlier tests that may have imported
+    Textual directly can't pollute sys.modules and mask a regression.
+    """
+
+    def test_plain_import_does_not_load_textual(self):
+        import subprocess
+
+        code = (
+            "import sys\n"
+            "sys.path.insert(0, %r)\n"
+            "import claude_usage_tui.plain  # noqa: F401\n"
+            "from claude_usage_tui.plain import commands  # noqa: F401\n"
+            "bad = sorted(m for m in sys.modules if m == 'textual' or m.startswith('textual.'))\n"
+            "assert not bad, 'textual leaked into plain: ' + repr(bad)\n"
+            % PACKAGE_DIR
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
