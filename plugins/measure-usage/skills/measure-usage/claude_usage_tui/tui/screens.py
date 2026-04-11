@@ -31,9 +31,12 @@ from ..turns_label import short_agent_id
 from .detail_rows import (
     SORT_MODES,
     DetailRow,
+    SortMode,
     TurnCostBreakdown,
     build_detail_rows,
     filter_rows,
+    get_sort_mode,
+    sort_mode_for_column,
     sort_rows,
     turn_cost_breakdown,
 )
@@ -483,23 +486,64 @@ class SessionDetailScreen(Screen):
         self.query_one("#detail_header", Label).update(self._build_header_text())
 
         table = self.query_one(DataTable)
-        table.add_column("#", width=6)
-        table.add_column("when", width=8)
-        table.add_column("took", width=7)
-        table.add_column("cost", width=9)
-        table.add_column("own", width=9)
-        table.add_column("carry", width=9)
-        table.add_column("caused", width=7)
-        table.add_column("what", width=50)
-        table.add_column("ctx", width=8)
-        table.add_column("model", width=7)
-        table.add_column("in", width=7)
-        table.add_column("out", width=7)
-        table.add_column("cache_r", width=9)
-        table.add_column("cache_w", width=9)
+        # Each column gets an explicit key so the sort-highlight
+        # helper can look up its Column object to rewrite the
+        # label (e.g. ``cost ▼``) when sort state changes, and
+        # so HeaderSelected handling can map clicks back to sort
+        # modes via ``sort_mode_for_column``.
+        for label, key, width in self._column_spec():
+            table.add_column(label, key=key, width=width)
 
         self._repopulate_table()
         table.focus()
+
+    @staticmethod
+    def _column_spec() -> list[tuple[str, str, int]]:
+        """Ordered (label, key, width) for every DataTable column.
+
+        Column keys double as ids for the sort-highlight helper
+        and the header-click handler. Keep these stable; sort
+        mode entries in :data:`SORT_MODES` reference them by id.
+        """
+        return [
+            ("#", "num", 6),
+            ("when", "when", 8),
+            ("took", "took", 7),
+            ("cost", "cost", 9),
+            ("own", "own", 9),
+            ("carry", "carry", 9),
+            ("caused", "caused", 7),
+            ("what", "what", 50),
+            ("ctx", "ctx", 8),
+            ("model", "model", 7),
+            ("in", "in_tokens", 7),
+            ("out", "out", 7),
+            ("cache_r", "cache_r", 9),
+            ("cache_w", "cache_w", 9),
+        ]
+
+    def _refresh_column_labels(self) -> None:
+        """Rewrite column header labels to mark the active sort.
+
+        The column whose ``column_id`` matches the current sort
+        mode gets its label rendered bold with a ``▼`` suffix;
+        every other column resets to a plain label. Works by
+        mutating ``DataTable.columns[key].label`` directly —
+        Textual refreshes the header on the next render pass.
+        """
+        from rich.text import Text
+
+        active = get_sort_mode(self._sort_mode).column_id
+        table = self.query_one(DataTable)
+        for label, key, _ in self._column_spec():
+            column = table.columns.get(key)
+            if column is None:
+                continue
+            if key == active:
+                column.label = Text(f"{label} ▼", style="bold")
+            else:
+                column.label = Text(label)
+        table.refresh()
 
     def _repopulate_table(self) -> None:
         """Rebuild the DataTable contents for the current sort/filter.
@@ -525,6 +569,7 @@ class SessionDetailScreen(Screen):
         if table.row_count:
             table.cursor_coordinate = Coordinate(0, 0)
         self.sub_title = self._build_sub_title()
+        self._refresh_column_labels()
 
     def _build_sub_title(self) -> str:
         """Sub_title shows breadcrumb + unit note + sort/filter state."""
@@ -555,10 +600,41 @@ class SessionDetailScreen(Screen):
         return "  ·  ".join(parts)
 
     def action_cycle_sort(self) -> None:
-        """Advance to the next sort mode in :data:`SORT_MODES`."""
-        mode_ids = [m[0] for m in SORT_MODES]
+        """Advance to the next sort mode in :data:`SORT_MODES`.
+
+        Cycle order follows the visual column order in the detail
+        table: natural (``#``) → took → cost → own → carry →
+        caused → back to natural. Columns that don't carry a
+        meaningful sort (``when``, ``what``, ``ctx``, model, raw
+        token counts) are skipped — the cycle has gaps.
+        """
+        mode_ids = [m.id for m in SORT_MODES]
         idx = mode_ids.index(self._sort_mode) if self._sort_mode in mode_ids else 0
         self._sort_mode = mode_ids[(idx + 1) % len(mode_ids)]
+        self._repopulate_table()
+
+    def on_data_table_header_selected(
+        self, event: DataTable.HeaderSelected
+    ) -> None:
+        """Click-to-sort: mouse-click on a column header.
+
+        Maps the clicked column key to a sort mode via
+        :func:`sort_mode_for_column`. Clicking a non-sortable
+        header (``when``, ``what``, model, raw counts) returns
+        ``None`` and the click is ignored. Clicking the already-
+        active column toggles back to natural order so the same
+        click can "undo" the sort.
+        """
+        key = event.column_key.value if event.column_key else None
+        if key is None:
+            return
+        target = sort_mode_for_column(key)
+        if target is None:
+            return
+        if self._sort_mode == target.id and target.id != "natural":
+            self._sort_mode = "natural"
+        else:
+            self._sort_mode = target.id
         self._repopulate_table()
 
     def action_reload(self) -> None:

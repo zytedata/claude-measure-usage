@@ -217,16 +217,18 @@ def _turn_row(
         # have to re-walk the tree to compute the decomposition.
         # ``sort_keys`` lets the glued-sort logic rank turn blocks
         # by numeric values instead of re-parsing the formatted
-        # cell strings.
+        # cell strings. Every entry in :data:`SORT_MODES` with a
+        # non-None sort key must be represented here.
         raw={
             "turn": t,
             "children": children,
             "breakdown": breakdown,
             "sort_keys": {
+                "took": took_secs,
                 "cost": cost,
                 "own": own,
-                "took": took_secs,
-                "ctx": float(t.get("ctx", 0)),
+                "carry": inherit,
+                "caused": caused,
             },
         },
     )
@@ -282,13 +284,59 @@ def _subagent_row(child: dict, t0: float) -> DetailRow:
 # Mode ids -> column keys used in DetailRow.raw["sort_keys"]. The
 # UI surfaces these human-readable labels; the cycle binding walks
 # through them in this order.
-SORT_MODES: list[tuple[str, str | None]] = [
-    ("natural", None),
-    ("cost", "cost"),
-    ("own", "own"),
-    ("took", "took"),
-    ("ctx", "ctx"),
+@dataclass(frozen=True)
+class SortMode:
+    """One entry in the sort cycle.
+
+    - ``id`` — stable short name used in state and sub_title.
+    - ``sort_key`` — key in :func:`DetailRow.raw["sort_keys"]`
+      used to rank turn blocks. ``None`` for natural order
+      (no reordering).
+    - ``column_id`` — id of the DataTable column that represents
+      this sort; used for the ▼ indicator that highlights the
+      active column. "natural" highlights the ``#`` column
+      because that's the visual anchor for transcript order.
+    """
+
+    id: str
+    sort_key: str | None
+    column_id: str
+
+
+# Cycle ORDER follows the visual column order in the detail
+# table: # → took → cost → own → carry → caused. Columns that
+# don't have a meaningful sort (``when``, ``what``, ``ctx``,
+# ``model``, raw token counts) are skipped with gaps. Pressing
+# ``s`` walks these in order and wraps back to natural.
+SORT_MODES: list[SortMode] = [
+    SortMode("natural", None, "num"),
+    SortMode("took", "took", "took"),
+    SortMode("cost", "cost", "cost"),
+    SortMode("own", "own", "own"),
+    SortMode("carry", "carry", "carry"),
+    SortMode("caused", "caused", "caused"),
 ]
+
+
+def get_sort_mode(mode_id: str) -> SortMode:
+    """Return the :class:`SortMode` for an id, or natural as fallback."""
+    for m in SORT_MODES:
+        if m.id == mode_id:
+            return m
+    return SORT_MODES[0]
+
+
+def sort_mode_for_column(column_id: str) -> SortMode | None:
+    """Return the :class:`SortMode` whose column_id matches, or None.
+
+    Used by the header-click handler: clicks on a non-sortable
+    column (``when``, ``what``, raw counts, ...) return ``None``
+    and become no-ops.
+    """
+    for m in SORT_MODES:
+        if m.column_id == column_id:
+            return m
+    return None
 
 
 def sort_rows(
@@ -320,9 +368,10 @@ def sort_rows(
     """
     if mode == "natural":
         return rows
-    key_name = dict(SORT_MODES).get(mode)
-    if key_name is None:
+    sort_mode = get_sort_mode(mode)
+    if sort_mode.sort_key is None:
         return rows
+    key_name = sort_mode.sort_key
     blocks, tail = _group_blocks(rows)
 
     def block_key(block: list[DetailRow]) -> float:

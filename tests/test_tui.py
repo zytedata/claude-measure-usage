@@ -343,6 +343,33 @@ class TestBuildDetailRows:
                 assert r.what
 
 
+class TestSortModes:
+    """Coverage for the SORT_MODES cycle shape and lookup helpers."""
+
+    def test_cycle_order_matches_column_order(self):
+        ids = [m.id for m in detail_rows.SORT_MODES]
+        assert ids == [
+            "natural", "took", "cost", "own", "carry", "caused",
+        ]
+
+    def test_natural_highlights_num_column(self):
+        m = detail_rows.get_sort_mode("natural")
+        assert m.column_id == "num"
+        assert m.sort_key is None
+
+    def test_sort_mode_for_known_column(self):
+        assert detail_rows.sort_mode_for_column("cost").id == "cost"
+        assert detail_rows.sort_mode_for_column("num").id == "natural"
+
+    def test_sort_mode_for_unsortable_column_returns_none(self):
+        assert detail_rows.sort_mode_for_column("what") is None
+        assert detail_rows.sort_mode_for_column("model") is None
+        assert detail_rows.sort_mode_for_column("ctx") is None
+
+    def test_unknown_mode_falls_back_to_natural(self):
+        assert detail_rows.get_sort_mode("bogus").id == "natural"
+
+
 class TestGluedSort:
     """Verify the glued-sort contract from docs/tui-ux.md.
 
@@ -906,7 +933,8 @@ class TestProjectScreenPilot:
                 assert isinstance(app.screen, SessionDetailScreen)
                 initial_row_count = len(app.screen._rows)
 
-                # Set sort mode to cost (one s press: natural → cost)
+                # Set sort mode to cost (two s presses: natural → took → cost)
+                await pilot.press("s")
                 await pilot.press("s")
                 await pilot.pause()
                 assert app.screen._sort_mode == "cost"
@@ -985,9 +1013,120 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
+    def test_header_click_sorts_column(self, tmp_path, monkeypatch):
+        """Clicking a sortable column header activates that sort.
+
+        Exercises ``on_data_table_header_selected`` via a direct
+        message post rather than a geometric click — the pilot's
+        click coordinates are fragile for header hits and the
+        behavior we care about is the sort-mode state change,
+        not the click geometry.
+        """
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable
+        from textual.widgets.data_table import ColumnKey
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import SessionDetailScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-hdr"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(FIXTURES / "multi_tool.jsonl", proj_dir / "s.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test(size=(160, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                detail = app.screen
+                assert isinstance(detail, SessionDetailScreen)
+                assert detail._sort_mode == "natural"
+
+                table = detail.query_one(DataTable)
+                # Click the cost header → sort activates
+                msg = DataTable.HeaderSelected(
+                    data_table=table,
+                    column_key=ColumnKey("cost"),
+                    column_index=3,
+                    label="cost",
+                )
+                detail.on_data_table_header_selected(msg)
+                assert detail._sort_mode == "cost"
+                assert "sort: cost" in detail.sub_title
+
+                # Click again → toggles back to natural
+                detail.on_data_table_header_selected(msg)
+                assert detail._sort_mode == "natural"
+
+                # Click a non-sortable header → no-op
+                msg_what = DataTable.HeaderSelected(
+                    data_table=table,
+                    column_key=ColumnKey("what"),
+                    column_index=7,
+                    label="what",
+                )
+                detail.on_data_table_header_selected(msg_what)
+                assert detail._sort_mode == "natural"
+                await pilot.press("q")
+
+        asyncio.run(run())
+
+    def test_active_sort_column_header_highlighted(
+        self, tmp_path, monkeypatch
+    ):
+        """The active sort column header is rendered with ``▼``
+        and a bold style; other headers reset to plain labels."""
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-hdr2"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(FIXTURES / "multi_tool.jsonl", proj_dir / "s.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test(size=(160, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+
+                table = app.screen.query_one(DataTable)
+                # Default: natural → num column gets the ▼
+                num_label = str(table.columns["num"].label)
+                assert "▼" in num_label
+
+                # Cycle to "cost"
+                for _ in range(2):
+                    await pilot.press("s")
+                await pilot.pause()
+                assert app.screen._sort_mode == "cost"
+                cost_label = str(table.columns["cost"].label)
+                num_label_after = str(table.columns["num"].label)
+                assert "▼" in cost_label
+                assert "▼" not in num_label_after
+                await pilot.press("q")
+
+        asyncio.run(run())
+
     def test_s_cycles_sort_mode(self, tmp_path, monkeypatch):
         """Pressing ``s`` on the detail screen cycles sort modes
-        and reorders the DataTable rows."""
+        in visual column order: natural → took → cost → own →
+        carry → caused → natural."""
         import asyncio
         import shutil
         from textual.widgets import DataTable
@@ -997,7 +1136,6 @@ class TestProjectScreenPilot:
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-sort"
         proj_dir.mkdir(parents=True)
-        # multi_tool fixture has several turns with different costs
         shutil.copy(FIXTURES / "multi_tool.jsonl", proj_dir / "s.jsonl")
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
@@ -1013,22 +1151,17 @@ class TestProjectScreenPilot:
                 await pilot.pause()
                 assert isinstance(app.screen, SessionDetailScreen)
                 assert app.screen._sort_mode == "natural"
-                # First press — natural → cost
-                await pilot.press("s")
-                await pilot.pause()
-                assert app.screen._sort_mode == "cost"
-                assert "sort: cost" in app.screen.sub_title
-                # Second press — cost → own
-                await pilot.press("s")
-                await pilot.pause()
-                assert app.screen._sort_mode == "own"
-                # Cycle all the way back to natural
-                await pilot.press("s")  # own → took
-                await pilot.press("s")  # took → ctx
-                await pilot.press("s")  # ctx → natural
-                await pilot.pause()
-                assert app.screen._sort_mode == "natural"
-                assert "sort:" not in app.screen.sub_title
+                expected = ["took", "cost", "own", "carry", "caused", "natural"]
+                for expected_mode in expected:
+                    await pilot.press("s")
+                    await pilot.pause()
+                    assert app.screen._sort_mode == expected_mode, (
+                        f"expected {expected_mode}, got {app.screen._sort_mode}"
+                    )
+                    if expected_mode == "natural":
+                        assert "sort:" not in app.screen.sub_title
+                    else:
+                        assert f"sort: {expected_mode}" in app.screen.sub_title
                 await pilot.press("q")
 
         asyncio.run(run())
