@@ -205,6 +205,7 @@ class _TranscriptParser:
         self.turn_count = 0
         self.tool_uses = {}
         self.user_message_count = 0
+        self.first_entry_ts = None
         self.server_tool_use = {}
         self.model = "unknown"
         self.entry_ts = None
@@ -223,6 +224,7 @@ class _TranscriptParser:
             "turn_count": self.turn_count,
             "tool_uses": self.tool_uses,
             "user_message_count": self.user_message_count,
+            "first_entry_ts": self.first_entry_ts,
             "server_tool_use": self.server_tool_use,
             "tool_invocations": self.tool_invocations,
             "agent_calls": self.agent_calls,
@@ -234,6 +236,8 @@ class _TranscriptParser:
         ts_str = entry.get("timestamp")
         if ts_str:
             self.entry_ts = parse_ts(ts_str)
+            if self.first_entry_ts is None:
+                self.first_entry_ts = self.entry_ts
 
         if self.start_ts is not None:
             if ts_str and self.entry_ts < self.start_ts:

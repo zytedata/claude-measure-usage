@@ -13,6 +13,50 @@ from __future__ import annotations
 import time
 
 
+def short_tokens(n: float | int) -> str:
+    """Render a token count as ``K``/``M`` with one decimal of precision.
+
+    Examples: ``850`` → ``"850"``, ``12_400`` → ``"12.4K"``,
+    ``2_380_000`` → ``"2.4M"``. Designed for narrow table columns
+    where exact counts matter less than order-of-magnitude.
+    """
+    if n is None:
+        return ""
+    n = round(n)
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}K"
+    return f"{n / 1_000_000:.1f}M"
+
+
+def short_datetime(ts: float | None) -> str:
+    """Render an epoch timestamp as a compact local datetime.
+
+    Format is ``YYYY-MM-DD HH:MM`` — precise enough to distinguish
+    same-day sessions without burning column width on seconds.
+    """
+    if ts is None:
+        return ""
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+
+
+def tiny_model(model: str) -> str:
+    """Collapse a fully-qualified model name to a short family tag.
+
+    ``claude-opus-4-6`` → ``"opus"``; ``claude-sonnet-4-5-20250514``
+    → ``"sonnet"``; unknown → ``""``. Used by the session screen's
+    Model column where the family matters more than the exact
+    version.
+    """
+    if not model:
+        return ""
+    for family in ("opus", "sonnet", "haiku"):
+        if family in model:
+            return family
+    return model
+
+
 def rel_time(mtime: float, now: float | None = None) -> str:
     """Render a timestamp as a short "time ago" string.
 

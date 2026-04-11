@@ -120,6 +120,102 @@ class TestDecodeCwd:
         assert discovery._decode_cwd("-var-log-foo") == "/var/log/foo"
 
 
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+class TestDiscoverSessions:
+    def _seed_project(self, tmp_path):
+        """Create a fake project dir with two real transcript fixtures."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "basic.jsonl").write_bytes(
+            (FIXTURES / "basic_session.jsonl").read_bytes()
+        )
+        (proj / "multi.jsonl").write_bytes(
+            (FIXTURES / "multi_tool.jsonl").read_bytes()
+        )
+        return proj
+
+    def test_empty_dir(self, tmp_path):
+        (tmp_path / "proj").mkdir()
+        assert discovery.discover_sessions(tmp_path / "proj") == []
+
+    def test_parses_fixture_sessions(self, tmp_path):
+        proj = self._seed_project(tmp_path)
+        entries = discovery.discover_sessions(proj)
+        assert len(entries) == 2
+        for e in entries:
+            assert e.turn_count > 0
+            assert e.total_seq_tokens > 0
+            assert e.dominant_model  # non-empty
+            assert e.started_ts is not None
+
+    def test_sort_by_start_desc(self, tmp_path):
+        # Craft two tiny sessions with known start timestamps and
+        # verify the more recent one is first.
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        old = (
+            '{"type":"user","message":{"role":"user","content":"hi"},'
+            '"timestamp":"2020-01-01T00:00:00Z","uuid":"u1"}\n'
+        )
+        new = (
+            '{"type":"user","message":{"role":"user","content":"hi"},'
+            '"timestamp":"2099-01-01T00:00:00Z","uuid":"u2"}\n'
+        )
+        (proj / "old.jsonl").write_text(old)
+        (proj / "new.jsonl").write_text(new)
+        entries = discovery.discover_sessions(proj)
+        assert [e.session_id for e in entries] == ["new", "old"]
+
+    def test_empty_transcript_survives(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "empty.jsonl").write_text("")
+        entries = discovery.discover_sessions(proj)
+        assert len(entries) == 1
+        assert entries[0].turn_count == 0
+        assert entries[0].total_seq_tokens == 0.0
+        assert entries[0].dominant_model == ""
+        assert entries[0].started_ts is None
+
+    def test_summary_strips_user_prefix(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        entry = (
+            '{"type":"user","message":{"role":"user","content":"hello world"},'
+            '"timestamp":"2030-01-01T00:00:00Z","uuid":"u1"}\n'
+        )
+        (proj / "s.jsonl").write_text(entry)
+        [e] = discovery.discover_sessions(proj)
+        assert e.first_user_message == "hello world"
+
+    def test_summary_collapses_slash_command(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        # Slash-command wrapper as Claude Code writes it.
+        entry = (
+            '{"type":"user","message":{"role":"user","content":'
+            '"<command-name>/clear</command-name>\\n<command-args></command-args>"},'
+            '"timestamp":"2030-01-01T00:00:00Z","uuid":"u1"}\n'
+        )
+        (proj / "s.jsonl").write_text(entry)
+        [e] = discovery.discover_sessions(proj)
+        assert e.first_user_message == "/clear"
+
+
+class TestDominantModel:
+    def test_picks_highest_total_raw_tokens(self):
+        tokens_by_model = {
+            "claude-opus-4-6": {"input_tokens": 100, "output_tokens": 10},
+            "claude-haiku-4-5": {"input_tokens": 10_000, "output_tokens": 500},
+        }
+        assert discovery._dominant_model(tokens_by_model) == "claude-haiku-4-5"
+
+    def test_empty(self):
+        assert discovery._dominant_model({}) == ""
+
+
 class TestProjectForCwd:
     def test_matches_existing_dir(self, tmp_path):
         root = tmp_path / "projects"
@@ -139,7 +235,12 @@ class TestProjectForCwd:
 # format
 # ---------------------------------------------------------------------------
 
-from claude_usage_tui.tui.format import rel_time  # noqa: E402
+from claude_usage_tui.tui.format import (  # noqa: E402
+    rel_time,
+    short_datetime,
+    short_tokens,
+    tiny_model,
+)
 
 
 class TestRelTime:
@@ -168,6 +269,52 @@ class TestRelTime:
 
     def test_future_mtime_clamps_to_just_now(self):
         assert rel_time(self.NOW + 60, now=self.NOW) == "just now"
+
+
+class TestShortTokens:
+    def test_small(self):
+        assert short_tokens(42) == "42"
+
+    def test_thousands(self):
+        assert short_tokens(12_400) == "12.4K"
+
+    def test_millions(self):
+        assert short_tokens(2_380_000) == "2.4M"
+
+    def test_zero(self):
+        assert short_tokens(0) == "0"
+
+    def test_none(self):
+        assert short_tokens(None) == ""
+
+
+class TestShortDatetime:
+    def test_formats_epoch(self):
+        # 2023-01-15 10:30:00 UTC. Exact local time depends on TZ,
+        # so just verify shape.
+        out = short_datetime(1_673_778_600.0)
+        assert len(out) == 16
+        assert out.count("-") == 2 and out.count(":") == 1
+
+    def test_none(self):
+        assert short_datetime(None) == ""
+
+
+class TestTinyModel:
+    def test_opus(self):
+        assert tiny_model("claude-opus-4-6") == "opus"
+
+    def test_sonnet(self):
+        assert tiny_model("claude-sonnet-4-5-20250514") == "sonnet"
+
+    def test_haiku(self):
+        assert tiny_model("claude-haiku-4-5-20251001") == "haiku"
+
+    def test_empty(self):
+        assert tiny_model("") == ""
+
+    def test_unknown_passes_through(self):
+        assert tiny_model("mystery-model") == "mystery-model"
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +360,41 @@ class TestProjectScreenPilot:
                 # Just assert both names are present.
                 rows = list(table.rows.keys())
                 assert len(rows) == 2
+                await pilot.press("q")
+
+        asyncio.run(run())
+
+    def test_open_pushes_session_screen(self, tmp_path, monkeypatch):
+        # Full end-to-end nav test. Uses a real fixture transcript
+        # so SessionScreen has something to render — discover_sessions
+        # parses it synchronously at mount time.
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import ProjectScreen, SessionScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-fake-project"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(FIXTURES / "basic_session.jsonl", proj_dir / "session.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, ProjectScreen)
+                # Press enter to open the only project.
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionScreen)
+                session_table = app.screen.query_one(DataTable)
+                assert session_table.row_count == 1
+                # Esc pops back to the project picker.
+                await pilot.press("escape")
+                await pilot.pause()
+                assert isinstance(app.screen, ProjectScreen)
                 await pilot.press("q")
 
         asyncio.run(run())

@@ -18,6 +18,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..metrics import model_aware_cost_breakdown
+from ..parse import parse_transcript
+
 
 def default_projects_root() -> Path:
     """Return ``~/.claude/projects``, resolved at call time.
@@ -111,6 +114,117 @@ def _collapse_home(path: str) -> str:
     if path.startswith(home + "/"):
         return "~" + path[len(home):]
     return path
+
+
+@dataclass(frozen=True)
+class SessionEntry:
+    """A parsed Claude Code session transcript."""
+
+    transcript_path: Path
+    session_id: str
+    started_ts: float | None
+    turn_count: int
+    total_seq_tokens: float
+    peak_context_tokens: int
+    dominant_model: str
+    first_user_message: str | None
+
+
+def discover_sessions(project_dir: Path) -> list[SessionEntry]:
+    """Return every session transcript inside ``project_dir``.
+
+    Parses each ``*.jsonl`` file with the shared
+    :func:`claude_usage_tui.parse.parse_transcript` so the TUI's
+    session screen can sort and display real token totals. Empty
+    or malformed files are still included as ``SessionEntry``
+    records with zeroed fields — the user should see them rather
+    than have them silently disappear.
+
+    Results are sorted by ``started_ts`` descending (most recent
+    first); sessions without a parsable start timestamp fall to
+    the bottom at natural filesystem order.
+    """
+    entries: list[SessionEntry] = []
+    for path in sorted(project_dir.glob("*.jsonl")):
+        if path.name.endswith(".meta.json"):
+            continue
+        entries.append(_session_entry(path))
+    entries.sort(
+        key=lambda e: (e.started_ts is None, -(e.started_ts or 0.0)),
+    )
+    return entries
+
+
+def _session_entry(path: Path) -> SessionEntry:
+    parsed = parse_transcript(str(path))
+    tokens_by_model = parsed.get("tokens_by_model") or {}
+    if tokens_by_model:
+        total_seq = model_aware_cost_breakdown(tokens_by_model)["total"]
+        dominant = _dominant_model(tokens_by_model)
+    else:
+        total_seq = 0.0
+        dominant = ""
+    return SessionEntry(
+        transcript_path=path,
+        session_id=path.stem,
+        started_ts=parsed.get("first_entry_ts"),
+        turn_count=parsed.get("turn_count", 0),
+        total_seq_tokens=total_seq,
+        peak_context_tokens=parsed.get("peak_context_tokens", 0),
+        dominant_model=dominant,
+        first_user_message=_pick_summary(parsed.get("rows") or []),
+    )
+
+
+def _pick_summary(rows: list[dict]) -> str | None:
+    """Return a display-friendly first-user-message summary.
+
+    Walks the parsed rows stream in order and returns the first row
+    that represents a user intent — either a plain user message or
+    a slash-command invocation. Client-side shims (task
+    notifications, bash input/output wrappers, etc.) are already
+    dropped by the nonturn-row pipeline, so we don't have to
+    re-filter them here.
+
+    The returned string has the ``[user] `` / ``[slash] `` prefix
+    stripped for cleaner display; the session screen only has one
+    column to render this in, and the kind prefix adds noise
+    without adding information the user can't infer from context.
+    """
+    for row in rows:
+        kind = row.get("kind", "")
+        what = row.get("what") or ""
+        if kind == "user":
+            return _strip_prefix(what, "[user] ")
+        if kind == "slash-command":
+            return _strip_prefix(what, "[slash] ")
+    return None
+
+
+def _strip_prefix(text: str, prefix: str) -> str:
+    if text.startswith(prefix):
+        return text[len(prefix):]
+    return text
+
+
+def _dominant_model(tokens_by_model: dict) -> str:
+    """Pick the model that accounts for the most raw tokens.
+
+    Uses total raw tokens (in + out + cache_r + cache_w) as the
+    ranking key rather than Sonnet-equivalent, because this column
+    is informational — we want "the model you used most", not "the
+    model that cost the most". A session that used Haiku for
+    thousands of turns and Opus for one shouldn't be labeled as
+    "opus".
+    """
+    best_model = ""
+    best_total = -1
+    for model, counts in tokens_by_model.items():
+        total = sum(counts.get(k, 0) for k in counts)
+        if total > best_total:
+            best_model = model
+            best_total = total
+    return best_model
 
 
 def project_for_cwd(
