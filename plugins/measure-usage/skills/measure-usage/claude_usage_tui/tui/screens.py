@@ -18,6 +18,7 @@ from textual.widgets import (
     DataTable,
     Footer,
     Header,
+    Input,
     Label,
     OptionList,
     ProgressBar,
@@ -32,6 +33,7 @@ from .detail_rows import (
     DetailRow,
     TurnCostBreakdown,
     build_detail_rows,
+    filter_rows,
     sort_rows,
     turn_cost_breakdown,
 )
@@ -412,6 +414,7 @@ class SessionDetailScreen(Screen):
 
     BINDINGS = [
         Binding("s", "cycle_sort", "Sort"),
+        Binding("slash", "open_filter", "Filter"),
         Binding("escape", "back", "Back"),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
@@ -422,6 +425,14 @@ class SessionDetailScreen(Screen):
         height: auto;
         padding: 0 2 1 2;
         color: $text-muted;
+    }
+    SessionDetailScreen #filter_input {
+        display: none;
+        height: 3;
+        margin: 0 2;
+    }
+    SessionDetailScreen #filter_input.-active {
+        display: block;
     }
     SessionDetailScreen DataTable {
         height: 1fr;
@@ -442,10 +453,15 @@ class SessionDetailScreen(Screen):
         self._tree = tree
         self._rows: list[DetailRow] = []
         self._sort_mode = "natural"
+        self._filter_text = ""
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield Label("", id="detail_header")
+        yield _FilterInput(
+            placeholder="filter — substring on what",
+            id="filter_input",
+        )
         table: DataTable[str] = DataTable(id="detail_table", zebra_stripes=True)
         table.cursor_type = "row"
         yield table
@@ -475,16 +491,23 @@ class SessionDetailScreen(Screen):
         table.focus()
 
     def _repopulate_table(self) -> None:
-        """Rebuild the DataTable contents for the current sort mode.
+        """Rebuild the DataTable contents for the current sort/filter.
 
-        Clears the table and re-adds rows from ``sort_rows``.
-        DataTable.clear() is O(rows) but the row count is small
-        (hundreds) so this is cheap relative to parsing the
-        transcript — we don't bother diffing.
+        Clears the table and re-adds rows from ``sort_rows`` →
+        ``filter_rows``. Both operations work at block level, so
+        they compose cleanly: sort reorders blocks, filter keeps
+        only matching blocks, the glue relationships are
+        preserved either way.
+
+        DataTable.clear() is O(rows) but row counts stay in the
+        hundreds even for big sessions — still cheap relative to
+        parsing the transcript, so we don't bother diffing.
         """
         table = self.query_one(DataTable)
         table.clear()
         visible = sort_rows(self._rows, self._sort_mode)
+        if self._filter_text:
+            visible = filter_rows(visible, self._filter_text)
         self._visible_rows = visible
         for row in visible:
             table.add_row(*_cells_for(row))
@@ -493,10 +516,12 @@ class SessionDetailScreen(Screen):
         self.sub_title = self._build_sub_title()
 
     def _build_sub_title(self) -> str:
-        """Sub_title shows breadcrumb + unit note + sort indicator."""
+        """Sub_title shows breadcrumb + unit note + sort/filter state."""
         parts = [self._title, self.USAGE_UNIT_NOTE]
         if self._sort_mode != "natural":
             parts.append(f"sort: {self._sort_mode} ▼")
+        if self._filter_text:
+            parts.append(f'filter: "{self._filter_text}"')
         return "  —  ".join(parts)
 
     def _build_header_text(self) -> str:
@@ -524,6 +549,36 @@ class SessionDetailScreen(Screen):
         idx = mode_ids.index(self._sort_mode) if self._sort_mode in mode_ids else 0
         self._sort_mode = mode_ids[(idx + 1) % len(mode_ids)]
         self._repopulate_table()
+
+    def action_open_filter(self) -> None:
+        """Show the filter input and give it focus.
+
+        If the filter is already active, re-focusing it lets the
+        user edit the current query in place.
+        """
+        inp = self.query_one("#filter_input", _FilterInput)
+        inp.add_class("-active")
+        inp.focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "filter_input":
+            return
+        self._filter_text = event.value
+        self._repopulate_table()
+
+    def close_filter(self) -> None:
+        """Dismiss the filter input and restore the full listing.
+
+        Called by the filter Input's own Esc binding so that the
+        screen's Esc = back binding doesn't fire while the input
+        has focus.
+        """
+        inp = self.query_one("#filter_input", _FilterInput)
+        inp.value = ""
+        inp.remove_class("-active")
+        self._filter_text = ""
+        self._repopulate_table()
+        self.query_one(DataTable).focus()
 
     def on_data_table_row_selected(
         self, event: DataTable.RowSelected
@@ -596,6 +651,25 @@ def _dominant_model(tokens_by_model: dict) -> str:
             best = model
             best_total = total
     return best
+
+
+class _FilterInput(Input):
+    """Input that swallows Esc to dismiss the filter bar.
+
+    Without this override, pressing Esc while the input has focus
+    would bubble to the screen's ``escape = back`` binding and
+    pop the whole detail screen — surprising when the user just
+    wants to cancel a filter.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel_filter", "Cancel", show=False),
+    ]
+
+    def action_cancel_filter(self) -> None:
+        screen = self.screen
+        if isinstance(screen, SessionDetailScreen):
+            screen.close_filter()
 
 
 class TurnDetailModal(ModalScreen):

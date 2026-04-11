@@ -338,6 +338,49 @@ def sort_rows(
     return out
 
 
+def filter_rows(
+    rows: list[DetailRow],
+    text: str,
+) -> list[DetailRow]:
+    """Return the subset of ``rows`` whose blocks match ``text``.
+
+    Substring match is case-insensitive (``str.casefold``) against
+    each row's ``what`` and ``num`` fields. Match scope follows
+    the glue rule from ``docs/tui-ux.md``:
+
+    - A turn block (leading non-turns + turn + subagents) is
+      shown in full when any of its rows matches — so a
+      ``tool:bash`` filter still shows the user message that
+      prompted the turn, plus every subagent the turn spawned,
+      without any of them having to individually match.
+    - Orphan tail rows match individually — they're not tied to
+      any turn, so there's no block to drag along.
+
+    Empty ``text`` returns the input unchanged.
+    """
+    if not text:
+        return rows
+    needle = text.casefold()
+    blocks, tail = _group_blocks(rows)
+    out: list[DetailRow] = []
+    for block in blocks:
+        if any(_row_matches(r, needle) for r in block):
+            out.extend(block)
+    for r in tail:
+        if _row_matches(r, needle):
+            out.append(r)
+    return out
+
+
+def _row_matches(row: DetailRow, needle: str) -> bool:
+    """True if ``needle`` appears in the row's label or number column."""
+    if needle in (row.what or "").casefold():
+        return True
+    if needle in (row.num or "").casefold():
+        return True
+    return False
+
+
 def _group_blocks(
     rows: list[DetailRow],
 ) -> tuple[list[list[DetailRow]], list[DetailRow]]:

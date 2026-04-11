@@ -443,6 +443,97 @@ class TestGluedSort:
         assert [r.num for r in by_own] == ["2", "1"]
 
 
+class TestFilterRows:
+    """Verify the block-level filter rules from docs/tui-ux.md."""
+
+    def _mk_turn(self, num: int, what: str):
+        return detail_rows.DetailRow(
+            kind="turn",
+            num=str(num),
+            what=what,
+            raw={
+                "turn": {"turn_num": num},
+                "children": [],
+                "sort_keys": {"cost": 0, "own": 0, "took": 0, "ctx": 0},
+            },
+        )
+
+    def _mk_sub(self, sid: str, what: str):
+        return detail_rows.DetailRow(kind="subagent", num=f"↳{sid}", what=what)
+
+    def _mk_nonturn(self, what: str):
+        return detail_rows.DetailRow(kind="nonturn", what=what)
+
+    def test_empty_filter_returns_input_unchanged(self):
+        rows = [self._mk_turn(1, "Bash ls")]
+        assert detail_rows.filter_rows(rows, "") is rows
+
+    def test_case_insensitive_substring(self):
+        rows = [
+            self._mk_turn(1, "Bash ls /tmp"),
+            self._mk_turn(2, "Read /foo.py"),
+        ]
+        out = detail_rows.filter_rows(rows, "BASH")
+        assert [r.num for r in out] == ["1"]
+
+    def test_match_pulls_subagents_with_parent(self):
+        # Filter on the parent's label — subagents come along.
+        rows = [
+            self._mk_turn(1, "investigate auth"),
+            self._mk_sub("a", "[Agent] jwt check"),
+            self._mk_sub("b", "[Agent] session check"),
+            self._mk_turn(2, "unrelated"),
+        ]
+        out = detail_rows.filter_rows(rows, "investigate")
+        assert [r.num for r in out] == ["1", "↳a", "↳b"]
+
+    def test_match_on_subagent_pulls_parent(self):
+        rows = [
+            self._mk_turn(1, "Bash git status"),
+            self._mk_sub("a", "[Agent] investigate blocker"),
+            self._mk_turn(2, "unrelated"),
+        ]
+        out = detail_rows.filter_rows(rows, "blocker")
+        assert [r.num for r in out] == ["1", "↳a"]
+
+    def test_leading_nonturn_pulls_its_turn(self):
+        # A match on the "lead-in" non-turn (user prompt /
+        # attachment) drags the whole block in with it.
+        rows = [
+            self._mk_nonturn("[user] fix auth bug"),
+            self._mk_turn(1, "Bash git log"),
+            self._mk_turn(2, "Read foo.py"),
+        ]
+        out = detail_rows.filter_rows(rows, "fix auth")
+        assert [r.kind for r in out] == ["nonturn", "turn"]
+        assert out[0].what == "[user] fix auth bug"
+        assert out[1].num == "1"
+
+    def test_match_on_num(self):
+        # Matching on the "num" column lets filter hit short
+        # subagent ids (↳a3f2) as well as turn numbers.
+        rows = [
+            self._mk_turn(1, "one"),
+            self._mk_sub("a3f2", "[Agent] X"),
+            self._mk_turn(2, "two"),
+        ]
+        out = detail_rows.filter_rows(rows, "a3f2")
+        assert [r.num for r in out] == ["1", "↳a3f2"]
+
+    def test_tail_orphan_matches_individually(self):
+        rows = [
+            self._mk_turn(1, "alpha"),
+            self._mk_nonturn("compact boundary: 150K → 30K"),
+            self._mk_nonturn("[permission-mode] → acceptEdits"),
+        ]
+        out = detail_rows.filter_rows(rows, "compact")
+        assert [r.what for r in out] == ["compact boundary: 150K → 30K"]
+
+    def test_no_match_returns_empty(self):
+        rows = [self._mk_turn(1, "hello")]
+        assert detail_rows.filter_rows(rows, "nope") == []
+
+
 class TestProjectForCwd:
     def test_matches_existing_dir(self, tmp_path):
         root = tmp_path / "projects"
@@ -642,6 +733,63 @@ class TestProjectScreenPilot:
                     assert table.row_count == 1
                     assert "skipped" in app.screen.sub_title
                     await pilot.press("q")
+
+        asyncio.run(run())
+
+    def test_slash_opens_filter_and_esc_cancels(
+        self, tmp_path, monkeypatch
+    ):
+        """/ opens the filter input, typing filters, Esc cancels."""
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable, Input
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import SessionDetailScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-filter"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(FIXTURES / "multi_tool.jsonl", proj_dir / "s.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test(size=(160, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionDetailScreen)
+                full_count = app.screen.query_one(DataTable).row_count
+                assert full_count > 0
+
+                # Press / — input should appear and gain focus.
+                await pilot.press("slash")
+                await pilot.pause()
+                inp = app.screen.query_one("#filter_input", Input)
+                assert "-active" in inp.classes
+                assert inp.has_focus
+
+                # Type a query that won't match anything
+                for c in "xyznopematch":
+                    await pilot.press(c)
+                await pilot.pause()
+                assert app.screen._filter_text == "xyznopematch"
+                assert app.screen.query_one(DataTable).row_count == 0
+                assert 'filter: "xyznopematch"' in app.screen.sub_title
+
+                # Esc cancels — filter clears, full view restored
+                await pilot.press("escape")
+                await pilot.pause()
+                assert app.screen._filter_text == ""
+                assert "-active" not in inp.classes
+                assert app.screen.query_one(DataTable).row_count == full_count
+                # Screen is still the detail screen (Esc did NOT pop)
+                assert isinstance(app.screen, SessionDetailScreen)
+                await pilot.press("q")
 
         asyncio.run(run())
 
