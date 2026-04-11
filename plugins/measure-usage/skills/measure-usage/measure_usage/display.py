@@ -194,6 +194,15 @@ def _short_model(model_name):
     return model_name
 
 
+def _tiny_model(model_name):
+    """Shorten a model ID to a 4-char tag for dense tables: opus, sonn, haik."""
+    name = model_name.lower()
+    for family, tag in (("opus", "opus"), ("sonnet", "sonn"), ("haiku", "haik")):
+        if family in name:
+            return tag
+    return (model_name or "")[:4]
+
+
 def _fmt_duration(duration_s):
     minutes = int(duration_s // 60)
     seconds = duration_s % 60

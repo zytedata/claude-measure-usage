@@ -1,4 +1,4 @@
-"""Session state management and metrics persistence."""
+"""Session state management."""
 
 import json
 import os
@@ -6,7 +6,6 @@ from pathlib import Path
 
 STATE_DIR = ".measure-usage"
 SESSIONS_DIR = os.path.join(STATE_DIR, "sessions")
-METRICS_FILE = os.path.join(STATE_DIR, "metrics.jsonl")
 
 
 def state_path(session_id):
@@ -42,9 +41,3 @@ def list_active_sessions():
         except (OSError, json.JSONDecodeError):
             continue
     return sessions
-
-
-def save_metrics_record(record):
-    os.makedirs(STATE_DIR, exist_ok=True)
-    with open(METRICS_FILE, "a") as f:
-        f.write(json.dumps(record) + "\n")

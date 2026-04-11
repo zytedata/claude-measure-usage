@@ -28,6 +28,12 @@ Stop tracking and save metrics:
 /measure-usage stop
 ```
 
+Per-turn drill-down (main session + one table per subagent):
+
+```
+/measure-usage turns
+```
+
 ## What it tracks
 
 - **Cost breakdown** — [Sonnet input-equivalent](#token-cost-sonnet-input-equivalent) tokens with percentage by type
@@ -37,49 +43,105 @@ Stop tracking and save metrics:
 - **Tool calls** — count, estimated cost (invoke + carry), and wall time
 - **User messages** — number of user prompts
 - **Agent/skill tree** — hierarchical breakdown with per-agent cost and context
+- **Per-turn tables** (`turns`) — every assistant turn with raw token columns,
+  per-turn Seq, subagent rollup on spawning turns, and a short label showing
+  what happened that turn
 
 ## Example output
 
 ```
-Duration: 89m 3s
-Tokens: 11.0M (Sonnet input-equivalent)
-  52%  Cache read: 5.7M
-  33%  Cache write: 2.8M (5m) + 914.9K (1h)
-  15%  Output: 1.6M
-  <1%  Input: 36.3K
+Duration: 89m 2s
+Tokens: 5.6M (Sonnet input-equivalent)
+  58%  Cache read: 3.2M
+  34%  Cache write: 1.4M (5m) + 488.4K (1h)
+   8%  Output: 447.2K
+  <1%  Input: 14.6K
 Peak context: 148.5K
-Model turns: 962
+Model turns: 523
 User messages: 46
 Tool calls (cost est.):
                     total  invoke   carry  count     wall
-  Bash               1.4M  751.2K  650.4K    336   15m 2s
-  Read               1.0M  275.0K  730.8K    160    46.1s
-  Write            233.1K  227.9K    5.3K     17     3.1s
-  Agent            152.2K   22.8K  129.4K     16  44m 35s
-  Grep              82.0K   17.6K   64.4K     35     0.8s
-  Skill             56.7K   30.4K   26.3K     28   48m 1s
-  Edit              30.6K   17.3K   13.3K     17     0.4s
-  Glob               3.5K    1.7K    1.7K      6     0.3s
+  Bash               1.1M  751.2K  362.1K    336   15m 2s
+  Read             671.0K  275.0K  396.1K    160    46.1s
+  Write            230.9K  227.9K    3.0K     17     3.1s
+  Agent             98.7K   22.8K   75.9K     16  44m 35s
+  Grep              55.2K   17.6K   37.6K     35     0.8s
+  Skill             45.6K   30.4K   15.1K     28   48m 1s
+  Edit              25.1K   17.3K    7.8K     17     0.4s
+  Glob               2.5K    1.7K     728      6     0.3s
+  AskUserQuestion    1.9K     883    1.1K      1    54.0s
+  ToolSearch          456     133     322      1     0.0s
 Breakdown:
                                             tokens  turns  context
-Main session                               4209.0K    231   148.5K
+Main session                               2374.2K    135   148.5K
   ├─ Agent codegen-analyze list-1            26.5K      2     9.9K
-  │  └─ Skill scrape-codegen-analyze        514.8K     50    49.6K
+  │  └─ Skill scrape-codegen-analyze        251.0K     27    49.6K
   ├─ Agent codegen-analyze list-2            24.0K      2    10.0K
-  │  └─ Skill scrape-codegen-analyze        670.1K     71    51.4K
-  ├─ Skill scrape-explore-site              587.0K     80    40.0K
+  │  └─ Skill scrape-codegen-analyze        328.0K     40    51.4K
   ├─ Agent codegen-analyze list-3            11.9K      2    10.1K
-  │  └─ Skill scrape-codegen-analyze        795.8K     64    64.3K
-  ├─ Agent codegen-analyze detail-1          30.0K      2    10.5K
-  │  └─ Skill scrape-codegen-analyze        427.6K     45    39.5K
+  │  └─ Skill scrape-codegen-analyze        358.9K     33    64.3K
+  ├─ Skill scrape-explore-site              274.5K     43    40.0K
+  ├─ Agent codegen-analyze front-1           25.8K      2    10.0K
+  │  └─ Skill scrape-codegen-analyze        205.9K     26    43.1K
   └─ ...
 ```
 
-> **Summary:** 11.0M Sonnet-equivalent tokens across 962 turns in ~89 minutes.
-> Cache dominates (52% read + 33% write). Subagents used more than the main
-> session — the three `scrape-codegen-analyze` list skills alone account for ~2M
-> tokens. `codegen-analyze list-3` has the highest context at 64.3K.
-> Full details in the collapsed Bash output above.
+> **Summary:** 5.6M Sonnet-equivalent tokens across 523 turns in ~89 minutes.
+> Cache dominates (58% read + 34% write). Subagents did most of the work —
+> the `scrape-codegen-analyze` skills together account for ~1.6M tokens.
+> `codegen-analyze list-3` hit the highest subagent context at 64.3K,
+> and the session peak context was 148.5K. Full details in the collapsed
+> Bash output above.
+
+### Per-turn table (`/measure-usage turns`)
+
+The `turns` command renders one row per assistant turn for the main session
+and one table per subagent, linked by short `↳id` anchors that are
+searchable in the output:
+
+```
+Columns are raw tokens except Seq/sub = Sonnet-equivalent (cache_r×0.1,
+in×1, cache_w×1.25, out×5; opus×5/3, haiku×1/3). sub = descendant
+subagents rolled up onto the spawning turn.
+
+Main session  —  135 turns  —  Seq 2.4M  —  subtree 5.6M
+ #     t+  model  in  out  cache_r  cache_w    ctx    Seq     sub  what
+──────────────────────────────────────────────────────────────────────────────────
+ 8   1:45  opus    1   94    21.4K      424   21.8K   5.2K          Bash "ls -la .scrape/.work/vinted-p…"
+ 9   1:49  opus    1    1    21.4K      733   22.1K   5.1K  141.8K  Page downloaded. Let me analyze it.  [↳a337]
+10   3:29  opus    1   33    22.1K      773   22.9K   5.6K          Read detail-1.rendered.json
+...
+17   5:57  opus    1   35    29.1K    1.7K   30.7K   8.6K  274.5K  Exploring the site to download more pages.  [↳a6ae]
+...
+20  10:54  opus    1    1    31.9K      352   32.2K   6.1K  750.3K  All 3 detail pages have both raw and rendered HTML. Launchi…  [6 subagents]
+21  12:55  opus    3    2    32.2K    3.7K   35.9K  13.1K          All 6 analyses complete. Let me compare the variants.
+22  13:02  opus    1  315    35.9K      294   36.2K   9.2K   24.0K  [Agent] "compare raw vs rendered"  [↳af29]
+──────────────────────────────────────────────────────────────────────────────────
+
+↳af29  "compare raw vs rendered"  —  parent turn 22  —  2 turns  —  Seq 24.0K
+#    t+  model  in  out  cache_r  cache_w    ctx    Seq  what
+─────────────────────────────────────────────────────────────────────────────────
+1  0:00  opus    3    2     7.4K    1.1K   8.5K   3.5K  Let me read all 6 JSON files.
+2  0:12  opus    1  419     8.5K    7.5K  15.9K  20.5K  Here is the comparison report, limited to the 18 schema fie…
+─────────────────────────────────────────────────────────────────────────────────
+         total   4  421    15.8K    8.6K         24.0K
+```
+
+Column semantics:
+
+- `in / out / cache_r / cache_w / ctx` — raw transcript tokens. `ctx` is
+  the total input context for the turn.
+- `Seq` — Sonnet-equivalent tokens for the turn's own work.
+- `sub` — descendant subtree Seq for any subagents this turn spawned,
+  rolled up all the way through nested children. The column disappears
+  when nothing was spawned.
+- `what` — first text line the assistant produced that turn, or a
+  collapsed tool list (`Read foo.py, Bash "pytest"`, `[3× Agent] e.g. "…"`).
+
+Each subagent table has a matching `↳id` header with its parent turn,
+its own Seq, and a `subtree` value when it spawned further children, so
+you can jump from the main table to the exact drill-down table for any
+spawning turn.
 
 ## How costs are calculated
 
@@ -154,7 +216,3 @@ claude plugin install measure-usage
 ```bash
 claude --plugin-dir /path/to/measure-usage/plugins/measure-usage
 ```
-
-## Output
-
-When tracking is stopped, metrics are saved to `.measure-usage/metrics.jsonl`.

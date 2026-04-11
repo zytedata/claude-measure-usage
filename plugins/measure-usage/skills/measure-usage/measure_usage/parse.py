@@ -22,6 +22,26 @@ ALL_TOKEN_KEYS = TOKEN_KEYS + CACHE_TIER_KEYS
 _CHARS_PER_TOKEN = 4
 SUBAGENT_MATCH_TOLERANCE_S = 0.1  # 100ms
 
+# Non-turn entry types dropped from the per-turn timeline.
+# All pure client-side bookkeeping with no UX or debugging value:
+#   - file-history-snapshot: /undo feature state
+#   - queue-operation: input queue enqueue/dequeue (user pastes,
+#     task notifications) — noisy and opaque
+_NONTURN_SKIP_TYPES = frozenset({
+    "file-history-snapshot",
+    "queue-operation",
+})
+
+# (type, subtype) pairs dropped from the per-turn timeline:
+#   - system/turn_duration: per-turn wallclock marker, redundant
+#     with the t+ column.
+#   - system/local_command: shell escape (`!cmd`) output, mirrors
+#     the user-side <local-command-*> shims that are also dropped.
+_NONTURN_SKIP_SUBTYPES = frozenset({
+    ("system", "turn_duration"),
+    ("system", "local_command"),
+})
+
 
 def _estimate_tokens(text):
     """Rough token estimate from text length (~4 chars per token)."""
@@ -169,7 +189,14 @@ def parse_transcript(transcript_path, start_ts=None):
 
 
 class _TranscriptParser:
-    """Accumulates metrics from transcript entries."""
+    """Accumulates metrics from transcript entries.
+
+    A single logical assistant turn is often split across multiple JSONL
+    entries — Claude Code emits one entry per content block (thinking,
+    text, tool_use), all sharing the same message id. Each entry carries
+    the same ``usage`` payload. We dedupe by message id so turn_count
+    and token totals reflect logical turns, not raw entry counts.
+    """
 
     def __init__(self, start_ts=None):
         self.start_ts = start_ts
@@ -183,7 +210,11 @@ class _TranscriptParser:
         self.entry_ts = None
         self.tool_invocations = []
         self.agent_calls = []
+        self.turns = []
+        self.rows = []
         self._tool_use_id_to_invoc = {}
+        self._cur_turn = None
+        self._cur_msg_id = None
 
     def result(self):
         return {
@@ -195,6 +226,8 @@ class _TranscriptParser:
             "server_tool_use": self.server_tool_use,
             "tool_invocations": self.tool_invocations,
             "agent_calls": self.agent_calls,
+            "turns": self.turns,
+            "rows": self.rows,
         }
 
     def process_entry(self, entry):
@@ -206,26 +239,57 @@ class _TranscriptParser:
             if ts_str and self.entry_ts < self.start_ts:
                 return
 
-        msg = entry.get("message", {})
+        msg = entry.get("message", {}) or {}
 
         if self._is_user_text_message(entry, msg):
             self.user_message_count += 1
 
         usage = msg.get("usage")
+        is_assistant = entry.get("type") == "assistant"
         if usage:
-            self.turn_count += 1
-            self.model = msg.get("model", "unknown")
-            self._accumulate_usage(usage)
+            # Multiple JSONL entries can share a message id — one per
+            # content block of a single logical turn, potentially with
+            # unrelated system entries interleaved between them. Only
+            # the first entry for a given id counts as a new turn.
+            msg_id = msg.get("id")
+            if msg_id and msg_id == self._cur_msg_id:
+                # Continuation of the current turn: keep _cur_turn,
+                # skip usage accumulation and turn_count increment.
+                # Extend end_ts so the renderer can measure the
+                # model's generation duration across split entries.
+                if self._cur_turn is not None and self.entry_ts is not None:
+                    prior = self._cur_turn.get("end_ts") or 0
+                    self._cur_turn["end_ts"] = max(prior, self.entry_ts)
+            else:
+                self.turn_count += 1
+                self.model = msg.get("model", "unknown")
+                self._accumulate_usage(usage)
+                self._cur_turn = self._start_turn_row(usage)
+                self.turns.append(self._cur_turn)
+                self.rows.append(self._cur_turn)
+                self._cur_msg_id = msg_id
+        elif not is_assistant:
+            # Non-assistant transcript entries (user messages, system
+            # events, permission mode changes, attachments, etc.) do
+            # not carry usage but are surfaced as timeline rows so
+            # users can see UX interactions inline with model turns.
+            self._append_nonturn_row(entry, msg)
 
+        # Only assistant-side blocks contribute to the current turn row;
+        # tool_result blocks are processed regardless (they carry input
+        # estimates for invocation cost accounting).
         content = msg.get("content", [])
         if isinstance(content, list):
             for block in content:
                 if not isinstance(block, dict):
                     continue
-                if block.get("type") == "tool_use":
+                btype = block.get("type")
+                if btype == "tool_use" and is_assistant:
                     self._handle_tool_use(block)
-                elif block.get("type") == "tool_result":
+                elif btype == "tool_result":
                     self._handle_tool_result(block)
+                elif btype == "text" and is_assistant:
+                    self._collect_turn_text(block)
 
     @staticmethod
     def _is_user_text_message(entry, msg):
@@ -240,6 +304,99 @@ class _TranscriptParser:
                 if isinstance(b, dict)
             )
         return True
+
+    def _start_turn_row(self, usage):
+        """Create a new per-turn row populated from the usage block.
+
+        Raw token counts only; Sonnet-equivalent ("Seq") is computed
+        lazily by the cost layer.
+        """
+        in_tokens = usage.get("input_tokens", 0)
+        out_tokens = usage.get("output_tokens", 0)
+        cache_r = usage.get("cache_read_input_tokens", 0)
+        cache_w = usage.get("cache_creation_input_tokens", 0)
+        return {
+            "kind": "turn",
+            "turn_num": self.turn_count,
+            "ts": self.entry_ts,
+            # Timestamp of the last JSONL entry sharing this turn's
+            # message id. A single logical turn can be split across
+            # multiple entries (thinking, text, tool_use) whose
+            # timestamps are seconds apart, so tracking the max gives
+            # us the model's generation end time. Updated in
+            # process_entry on msg_id continuation.
+            "end_ts": self.entry_ts,
+            "model": self.model,
+            "in_tokens": in_tokens,
+            "out_tokens": out_tokens,
+            "cache_r": cache_r,
+            "cache_w": cache_w,
+            "ctx": in_tokens + cache_r + cache_w,
+            "text_preview": "",
+            "tool_calls": [],
+            # Max tool_result ts among tool results that came in AFTER
+            # this turn fired its tool_use blocks and BEFORE the next
+            # turn started. Filled in by _handle_tool_result.
+            "last_tool_result_ts": None,
+        }
+
+    def _append_nonturn_row(self, entry, msg):
+        """Append a non-turn timeline row for a transcript entry.
+
+        Pure bookkeeping entries with no UX or debugging value are
+        dropped here (not in the renderer) so downstream consumers
+        of ``rows`` don't have to re-filter.
+        """
+        etype = entry.get("type")
+        if etype in _NONTURN_SKIP_TYPES:
+            return
+        if (etype, entry.get("subtype")) in _NONTURN_SKIP_SUBTYPES:
+            return
+        # Drop user entries whose content is entirely tool_result blocks.
+        # The only useful datapoint — when the last tool finished — is
+        # latched onto the spawning turn's ``last_tool_result_ts`` via
+        # ``_handle_tool_result``, and surfaced as a "gap" column later.
+        if self._is_tool_result_only_user_entry(entry, msg):
+            return
+        from .nonturn_rows import build_nonturn_label
+        result = build_nonturn_label(entry, msg)
+        if result is None:
+            return
+        kind, label = result
+        row = {
+            "kind": kind,
+            "ts": self.entry_ts,
+            "what": label,
+        }
+        # Preserve compact_boundary metadata so the metrics layer can
+        # detect epoch boundaries when attributing cache_w caused cost.
+        if kind == "system:compact_boundary":
+            row["compact_meta"] = entry.get("compactMetadata") or {}
+        self.rows.append(row)
+
+    @staticmethod
+    def _is_tool_result_only_user_entry(entry, msg):
+        """True if entry is a ``user`` message whose content is nothing
+        but ``tool_result`` blocks (the synthetic wrappers Claude Code
+        writes after tool calls return)."""
+        if entry.get("type") != "user":
+            return False
+        content = msg.get("content")
+        if not isinstance(content, list) or not content:
+            return False
+        return all(
+            isinstance(b, dict) and b.get("type") == "tool_result"
+            for b in content
+            if isinstance(b, dict)
+        )
+
+    def _collect_turn_text(self, block):
+        """Capture the first text block's first line for the current turn."""
+        if self._cur_turn is None or self._cur_turn["text_preview"]:
+            return
+        text = block.get("text", "") or ""
+        first_line = text.strip().split("\n", 1)[0].strip()
+        self._cur_turn["text_preview"] = first_line
 
     def _accumulate_usage(self, usage):
         """Accumulate token usage from an assistant turn."""
@@ -274,17 +431,30 @@ class _TranscriptParser:
         """Handle a tool_use content block."""
         name = block.get("name", "unknown")
         self.tool_uses[name] = self.tool_uses.get(name, 0) + 1
+        inp = block.get("input", {}) or {}
 
         # Track Agent/Skill calls for tree building
         if name in ("Agent", "Skill") and self.entry_ts is not None:
-            inp = block.get("input", {})
             desc = inp.get("description", "") if name == "Agent" else inp.get("skill", "")
-            self.agent_calls.append({"ts": self.entry_ts, "name": name, "description": desc})
+            self.agent_calls.append({
+                "ts": self.entry_ts,
+                "name": name,
+                "description": desc,
+                "turn_num": self.turn_count,
+            })
+
+        # Attach tool call to the current turn for label rendering.
+        if self._cur_turn is not None:
+            self._cur_turn["tool_calls"].append({
+                "name": name,
+                "input": inp,
+                "id": block.get("id", ""),
+            })
 
         invoc = {
             "name": name,
             "model": self.model,
-            "output_est": _estimate_tokens(json.dumps(block.get("input", {}))),
+            "output_est": _estimate_tokens(json.dumps(inp)),
             "input_est": 0,
             "result_turn": None,
             "call_ts": self.entry_ts,
@@ -311,7 +481,18 @@ class _TranscriptParser:
             invoc["input_est"] = input_est
             invoc["result_turn"] = self.turn_count
             invoc["result_ts"] = self.entry_ts
-        else:
+
+        # Latch the latest tool_result timestamp onto the preceding
+        # turn so the renderer can show the "gap" between tools
+        # finishing and the next turn starting. ``_cur_turn`` still
+        # points at that turn here because new turns are only started
+        # on assistant entries with usage, and tool_result user
+        # entries come between turns.
+        if self._cur_turn is not None and self.entry_ts is not None:
+            prior = self._cur_turn.get("last_tool_result_ts") or 0
+            self._cur_turn["last_tool_result_ts"] = max(prior, self.entry_ts)
+
+        if invoc is None:
             self.tool_invocations.append({
                 "name": "unknown",
                 "model": self.model,
@@ -360,13 +541,14 @@ def build_agent_tree(main_path, main_parsed, subagent_infos):
     # Build tree recursively
     def _build_children(parent_path):
         children = []
-        for info, call_tool, call_desc in children_map.get(parent_path, []):
+        for info, call_tool, call_desc, call_turn in children_map.get(parent_path, []):
             parsed = sub_parsed[info["path"]]
             sub_totals = total_from_by_model(parsed["tokens_by_model"])
             node = {
                 "path": os.path.basename(info["path"]),
                 "call_tool": call_tool,
                 "call_description": call_desc,
+                "call_turn": call_turn,
                 "meta": info["meta"],
                 "total_tokens": sum(sub_totals[k] for k in TOKEN_KEYS),
                 "turn_count": parsed["turn_count"],
@@ -377,6 +559,8 @@ def build_agent_tree(main_path, main_parsed, subagent_infos):
                 "server_tool_use": parsed["server_tool_use"],
                 "tool_invocations": parsed["tool_invocations"],
                 "agent_calls": parsed["agent_calls"],
+                "turns": parsed["turns"],
+                "rows": parsed.get("rows", []),
                 "children": _build_children(info["path"]),
             }
             children.append(node)
@@ -388,40 +572,47 @@ def build_agent_tree(main_path, main_parsed, subagent_infos):
 def _collect_agent_calls(main_path, main_parsed, subagent_infos, sub_parsed):
     """Collect all Agent/Skill calls from main + subagent transcripts.
 
-    Returns list of (caller_path, call_ts, tool_name, description).
+    Returns list of (caller_path, call_ts, tool_name, description, call_turn).
     """
     all_calls = []
     for call in main_parsed["agent_calls"]:
-        all_calls.append((main_path, call["ts"], call["name"], call["description"]))
+        all_calls.append((
+            main_path, call["ts"], call["name"], call["description"], call.get("turn_num"),
+        ))
     for info in subagent_infos:
         for call in sub_parsed[info["path"]]["agent_calls"]:
-            all_calls.append((info["path"], call["ts"], call["name"], call["description"]))
+            all_calls.append((
+                info["path"], call["ts"], call["name"], call["description"], call.get("turn_num"),
+            ))
     return all_calls
 
 
 def _match_subagents_to_parents(main_path, subagent_infos, all_calls):
     """Match each subagent to a parent by closest timestamp.
 
-    Returns dict: parent_path -> list of (info, call_tool, call_description).
+    Returns dict: parent_path -> list of (info, call_tool, call_description, call_turn).
     """
     children_map = {}
     for info in subagent_infos:
         best_match = None
         best_delta = float("inf")
-        for caller_path, call_ts, tool_name, desc in all_calls:
+        for caller_path, call_ts, tool_name, desc, call_turn in all_calls:
             delta = info["start_ts"] - call_ts
             if 0 <= delta <= SUBAGENT_MATCH_TOLERANCE_S and delta < best_delta:
                 best_delta = delta
-                best_match = (caller_path, tool_name, desc)
+                best_match = (caller_path, tool_name, desc, call_turn)
 
         if best_match:
-            parent_path, call_tool, call_desc = best_match
+            parent_path, call_tool, call_desc, call_turn = best_match
         else:
             parent_path = main_path
             call_tool = None
             call_desc = info["meta"].get("description", "")
+            call_turn = None
 
-        children_map.setdefault(parent_path, []).append((info, call_tool, call_desc))
+        children_map.setdefault(parent_path, []).append(
+            (info, call_tool, call_desc, call_turn)
+        )
     return children_map
 
 

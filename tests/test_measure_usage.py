@@ -876,18 +876,6 @@ class TestStateManagement:
         ids = {sid for sid, _ in sessions}
         assert ids == {"sess-1", "sess-2"}
 
-    def test_save_metrics_record(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-
-        record = {"timestamp": "2026-04-07T10:00:00Z", "total_tokens": 1000}
-        measure_usage.save_metrics_record(record)
-        measure_usage.save_metrics_record(record)
-
-        lines = Path(measure_usage.METRICS_FILE).read_text().strip().split("\n")
-        assert len(lines) == 2
-        assert json.loads(lines[0])["total_tokens"] == 1000
-
-
 # ---------------------------------------------------------------------------
 # Commands (integration)
 # ---------------------------------------------------------------------------
@@ -944,29 +932,54 @@ class TestCommands:
     def test_start_stats_stop(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
 
-        mu_commands.cmd_start("sess-basic")
+        # Copy the base fixture to a writable location so we can
+        # append new entries mid-test. cmd_start anchors the tracking
+        # window to the transcript's current tail, so an entry that
+        # exists only AFTER cmd_start falls inside the window.
+        transcript = tmp_path / "session.jsonl"
+        transcript.write_bytes((FIXTURES / "basic_session.jsonl").read_bytes())
+        monkeypatch.setattr(
+            mu_commands, "_resolve_transcript", lambda sid: str(transcript),
+        )
+
+        mu_commands.cmd_start("sess-dyn")
         out = capsys.readouterr().out
         assert "started" in out.lower()
 
-        mu_commands.cmd_stats("sess-basic")
+        # Simulate a turn that happens after /start: append an
+        # assistant entry with a later timestamp than any pre-start
+        # entry. This turn should show up inside the tracked window.
+        new_turn = {
+            "type": "assistant",
+            "uuid": "post1",
+            "timestamp": "2026-04-07T11:00:00Z",
+            "sessionId": "sess-dyn",
+            "message": {
+                "role": "assistant",
+                "id": "msg_post",
+                "model": "claude-sonnet-4-6",
+                "content": [{"type": "text", "text": "response"}],
+                "usage": {
+                    "input_tokens": 500,
+                    "output_tokens": 100,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                },
+            },
+        }
+        with open(transcript, "a") as f:
+            f.write(json.dumps(new_turn) + "\n")
+
+        mu_commands.cmd_stats("sess-dyn")
         out = capsys.readouterr().out
         assert "Tokens" in out
 
-        mu_commands.cmd_stop("sess-basic")
+        mu_commands.cmd_stop("sess-dyn")
         out = capsys.readouterr().out
-        assert "Saved to" in out
-
-        # Metrics file written
-        assert os.path.exists(measure_usage.METRICS_FILE)
-        record = json.loads(Path(measure_usage.METRICS_FILE).read_text().strip())
-        assert record["total_tokens"] > 0
-        assert "tool_uses" in record
-        assert "tokens_by_model" in record
-        assert "tree" in record
-        assert record["session_id"] == "sess-basic"
+        assert "Tokens" in out
 
         # State cleaned up
-        assert measure_usage.load_state("sess-basic") is None
+        assert measure_usage.load_state("sess-dyn") is None
 
     def test_start_when_already_tracking(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
@@ -1003,8 +1016,7 @@ class TestCommands:
         assert len(sessions) == 2
 
         mu_commands.cmd_stop()
-        out = capsys.readouterr().out
-        assert "Saved to" in out
+        capsys.readouterr()
 
         assert measure_usage.list_active_sessions() == []
 
@@ -1015,10 +1027,652 @@ class TestCommands:
         out = capsys.readouterr().out
         assert "Tokens:" in out
         assert "Read" in out
-        assert "Saved to" in out
 
-        # Record saved with timestamps
-        record = json.loads(Path(measure_usage.METRICS_FILE).read_text().strip())
-        assert record["session_id"] == "sess-basic"
-        assert "started_at" in record
-        assert "stopped_at" in record
+
+# ---------------------------------------------------------------------------
+# Per-turn rows (parse_transcript output)
+# ---------------------------------------------------------------------------
+
+class TestPerTurnRows:
+    def test_basic_session_turn_rows(self):
+        result = measure_usage.parse_transcript(str(FIXTURES / "basic_session.jsonl"))
+        turns = result["turns"]
+        assert len(turns) == 4
+        assert [t["turn_num"] for t in turns] == [1, 2, 3, 4]
+        # Turn 1: thinking only, no text preview, no tool calls
+        assert turns[0]["text_preview"] == ""
+        assert turns[0]["tool_calls"] == []
+        # Turn 2: has a text block
+        assert turns[1]["text_preview"] == "Hello!"
+        # Turn 3: invokes Read
+        assert len(turns[2]["tool_calls"]) == 1
+        assert turns[2]["tool_calls"][0]["name"] == "Read"
+        assert turns[2]["tool_calls"][0]["input"]["file_path"] == "/tmp/test.txt"
+        # Turn 4: text block after tool result
+        assert turns[3]["text_preview"] == "Here is the file."
+
+    def test_turn_row_token_fields(self):
+        result = measure_usage.parse_transcript(str(FIXTURES / "basic_session.jsonl"))
+        t = result["turns"][0]
+        assert t["in_tokens"] == 100
+        assert t["out_tokens"] == 20
+        assert t["cache_r"] == 200
+        assert t["cache_w"] == 50
+        assert t["ctx"] == 350
+        assert t["model"] == "claude-opus-4-6"
+
+    def test_agent_call_records_turn_num(self):
+        result = measure_usage.parse_transcript(str(FIXTURES / "with_subagents.jsonl"))
+        assert len(result["agent_calls"]) == 1
+        assert result["agent_calls"][0]["turn_num"] == 1
+
+
+# ---------------------------------------------------------------------------
+# turns_label
+# ---------------------------------------------------------------------------
+
+class TestTurnLabel:
+    def test_prefers_text_preview(self):
+        row = {
+            "text_preview": "Hello world",
+            "tool_calls": [{"name": "Read", "input": {"file_path": "/a"}}],
+        }
+        assert measure_usage.turn_label(row) == "Hello world"
+
+    def test_single_read(self):
+        row = {
+            "text_preview": "",
+            "tool_calls": [{"name": "Read", "input": {"file_path": "/tmp/foo.py"}}],
+        }
+        assert measure_usage.turn_label(row) == "Read foo.py"
+
+    def test_bash_with_command(self):
+        row = {
+            "text_preview": "",
+            "tool_calls": [{"name": "Bash", "input": {"command": "pytest -q"}}],
+        }
+        assert measure_usage.turn_label(row) == 'Bash "pytest -q"'
+
+    def test_single_agent_with_description(self):
+        row = {
+            "text_preview": "",
+            "tool_calls": [{"name": "Agent", "input": {"description": "do a thing"}}],
+        }
+        assert measure_usage.turn_label(row) == '[Agent] "do a thing"'
+
+    def test_parallel_agent_fan_out(self):
+        row = {
+            "text_preview": "",
+            "tool_calls": [
+                {"name": "Agent", "input": {"description": "task A"}},
+                {"name": "Agent", "input": {"description": "task B"}},
+                {"name": "Agent", "input": {"description": "task C"}},
+            ],
+        }
+        label = measure_usage.turn_label(row)
+        assert label.startswith("[3× Agent]")
+        assert "task A" in label
+
+    def test_repeated_tool_collapsed(self):
+        row = {
+            "text_preview": "",
+            "tool_calls": [
+                {"name": "Read", "input": {"file_path": "/a.py"}},
+                {"name": "Read", "input": {"file_path": "/a.py"}},
+                {"name": "Grep", "input": {"pattern": "foo"}},
+            ],
+        }
+        label = measure_usage.turn_label(row)
+        assert "Read a.py ×2" in label
+        assert 'Grep "foo"' in label
+
+    def test_empty(self):
+        assert measure_usage.turn_label({"text_preview": "", "tool_calls": []}) == ""
+
+    def test_task_create_with_subject(self):
+        row = {
+            "text_preview": "",
+            "tool_calls": [
+                {"name": "TaskCreate", "input": {"subject": "Build parser"}}
+            ],
+        }
+        assert measure_usage.turn_label(row) == 'TaskCreate "Build parser"'
+
+    def test_task_update_status(self):
+        row = {
+            "text_preview": "",
+            "tool_calls": [
+                {"name": "TaskUpdate", "input": {"taskId": "3", "status": "completed"}}
+            ],
+        }
+        assert measure_usage.turn_label(row) == "TaskUpdate #3 → completed"
+
+    def test_web_fetch_domain(self):
+        row = {
+            "text_preview": "",
+            "tool_calls": [
+                {"name": "WebFetch", "input": {"url": "https://example.com/docs/x"}}
+            ],
+        }
+        assert measure_usage.turn_label(row) == "WebFetch example.com"
+
+    def test_tool_search_query(self):
+        row = {
+            "text_preview": "",
+            "tool_calls": [
+                {"name": "ToolSearch", "input": {"query": "select:Read,Edit"}}
+            ],
+        }
+        assert measure_usage.turn_label(row) == 'ToolSearch "select:Read,Edit"'
+
+
+class TestMsgIdDedupe:
+    """Claude Code emits one JSONL entry per content block; a single logical
+    turn can span multiple entries sharing the same message id (all carrying
+    the same usage payload). The parser must count it as one turn."""
+
+    def _write(self, tmp_path, entries):
+        path = tmp_path / "split_turn.jsonl"
+        path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+        return str(path)
+
+    def _assistant(self, uuid, msg_id, ts, content, usage):
+        return {
+            "type": "assistant",
+            "uuid": uuid,
+            "timestamp": ts,
+            "sessionId": "s1",
+            "message": {
+                "role": "assistant",
+                "id": msg_id,
+                "model": "claude-sonnet-4-6",
+                "content": content,
+                "usage": usage,
+            },
+        }
+
+    def test_split_thinking_plus_tool_counts_as_one_turn(self, tmp_path):
+        usage = {
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 100,
+        }
+        entries = [
+            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "thinking", "thinking": "..."}], usage),
+            self._assistant("u2", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "tool_use", "id": "t1", "name": "Read",
+                              "input": {"file_path": "/a.py"}}], usage),
+            self._assistant("u3", "msg_B", "2026-04-07T10:00:05Z",
+                            [{"type": "text", "text": "done"}], usage),
+        ]
+        path = self._write(tmp_path, entries)
+
+        result = measure_usage.parse_transcript(path)
+        # Two logical turns, not three.
+        assert result["turn_count"] == 2
+        assert len(result["turns"]) == 2
+        # Tokens accumulated only twice, not three times.
+        tokens = result["tokens_by_model"]["claude-sonnet-4-6"]
+        assert tokens["input_tokens"] == 20
+        assert tokens["cache_read_input_tokens"] == 200
+        # Content from both entries of the first logical turn must be on
+        # the same row: we have the Read tool call there.
+        first = result["turns"][0]
+        assert len(first["tool_calls"]) == 1
+        assert first["tool_calls"][0]["name"] == "Read"
+        # Second turn has the text preview.
+        assert result["turns"][1]["text_preview"] == "done"
+
+    def test_system_entry_between_split_halves_still_dedupes(self, tmp_path):
+        """A ``system``-type entry interleaved between the two halves of a
+        split turn must not break msg-id dedupe."""
+        usage = {
+            "input_tokens": 1,
+            "output_tokens": 1500,
+            "cache_creation_input_tokens": 900,
+            "cache_read_input_tokens": 64000,
+        }
+        entries = [
+            self._assistant("u1", "msg_Z", "2026-04-10T21:40:56Z",
+                            [{"type": "thinking", "thinking": "..."}], usage),
+            {
+                "type": "system",
+                "uuid": "sys1",
+                "timestamp": "2026-04-10T21:41:10Z",
+                "sessionId": "s1",
+                "message": {},
+            },
+            self._assistant("u2", "msg_Z", "2026-04-10T21:41:10Z",
+                            [{"type": "text", "text": "## How it works"}], usage),
+        ]
+        path = self._write(tmp_path, entries)
+
+        result = measure_usage.parse_transcript(path)
+        assert result["turn_count"] == 1
+        assert len(result["turns"]) == 1
+        assert result["turns"][0]["text_preview"] == "## How it works"
+
+    def test_parallel_tool_calls_same_msg_id_one_turn(self, tmp_path):
+        """Seven parallel TaskCreate calls in one logical turn should be
+        one row in the per-turn output, not seven."""
+        usage = {
+            "input_tokens": 5,
+            "output_tokens": 500,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 1000,
+        }
+        entries = [
+            self._assistant(f"u{i}", "msg_X", "2026-04-07T10:00:00Z",
+                            [{"type": "tool_use", "id": f"t{i}",
+                              "name": "TaskCreate",
+                              "input": {"subject": f"task {i}"}}], usage)
+            for i in range(7)
+        ]
+        path = self._write(tmp_path, entries)
+
+        result = measure_usage.parse_transcript(path)
+        assert result["turn_count"] == 1
+        assert len(result["turns"]) == 1
+        # All 7 tool calls land on the single row.
+        assert len(result["turns"][0]["tool_calls"]) == 7
+        # Tool invocations list also has 7 entries (one per tool_use block).
+        assert len(result["tool_invocations"]) == 7
+        # Usage counted exactly once.
+        tokens = result["tokens_by_model"]["claude-sonnet-4-6"]
+        assert tokens["output_tokens"] == 500
+
+
+class TestNonturnRows:
+    """The per-turn report surfaces non-assistant transcript entries as
+    timeline rows. We emit one row per entry kind and deliberately don't
+    filter so unexpected types stay visible."""
+
+    def _write(self, tmp_path, entries):
+        path = tmp_path / "mixed.jsonl"
+        path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+        return str(path)
+
+    def test_user_text_builds_user_row(self, tmp_path):
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content": "hello world"}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "user"
+        assert "hello world" in rows[0]["what"]
+
+    def test_interrupt_detected(self, tmp_path):
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content": [
+                 {"type": "text", "text": "[Request interrupted by user for tool use]"},
+             ]}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "interrupt"
+        assert "interrupted" in rows[0]["what"].lower()
+
+    def test_permission_mode_row(self, tmp_path):
+        path = self._write(tmp_path, [
+            {"type": "permission-mode", "permissionMode": "acceptEdits",
+             "timestamp": "2026-04-07T10:00:00Z", "sessionId": "s1"},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "permission-mode"
+        assert "acceptEdits" in rows[0]["what"]
+
+    def test_tool_result_only_user_entry_is_dropped(self, tmp_path):
+        """User entries containing only tool_result blocks are
+        filtered out — they're noisy (one per tool call) and their
+        timestamps are preserved via last_tool_result_ts on the
+        preceding turn for the renderer's gap column."""
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content": [
+                 {"type": "tool_result", "tool_use_id": "toolu_01Y5P3f8KrVaz", "content": "ok"},
+             ]}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert rows == []
+
+    def test_attachment_deferred_tools_delta(self, tmp_path):
+        path = self._write(tmp_path, [
+            {"type": "attachment", "timestamp": "2026-04-07T10:00:00Z",
+             "sessionId": "s1",
+             "attachment": {"type": "deferred_tools_delta",
+                            "addedNames": ["A", "B", "C"], "removedNames": []}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "attachment:deferred_tools_delta"
+        assert "+3" in rows[0]["what"]
+
+    def test_compact_boundary_splits_caused_epoch(self, tmp_path):
+        """Per-turn caused_seq attribution must stop at
+        ``system:compact_boundary``: turns before the boundary cannot
+        inherit their cache_w into turns after it."""
+        from measure_usage.metrics import compute_caused_by_turn
+
+        def mk_turn(n, cache_w=0):
+            return {
+                "kind": "turn",
+                "turn_num": n,
+                "model": "claude-sonnet-4-6",
+                "cache_w": cache_w,
+            }
+
+        rows = [
+            mk_turn(1, cache_w=1000),   # before boundary, 2 turns after it in epoch
+            mk_turn(2),
+            mk_turn(3),
+            {"kind": "system:compact_boundary"},
+            mk_turn(4, cache_w=1000),   # after boundary, 2 turns after it in epoch
+            mk_turn(5),
+            mk_turn(6),
+        ]
+        caused = compute_caused_by_turn(rows)
+        # Turn 1 has 2 turns remaining in its epoch (turns 2, 3).
+        # Without epoch awareness this would be 5 turns remaining.
+        assert caused[1] == 1000 * 0.1 * 1.0 * 2  # 200
+        # Turn 4 has 2 turns remaining in its own epoch (turns 5, 6).
+        assert caused[4] == 1000 * 0.1 * 1.0 * 2  # 200
+        # Last turn in each epoch has 0 remaining.
+        assert caused[3] == 0.0
+        assert caused[6] == 0.0
+
+    def test_compact_boundary_epoch_aware_tool_costs(self, tmp_path):
+        """compute_tool_costs should respect compact_boundary when
+        ``rows`` is supplied — a tool result from before a
+        compaction is not billed against turns after it."""
+        from measure_usage.metrics import compute_tool_costs
+
+        invocations = [
+            {
+                "name": "Read",
+                "model": "claude-sonnet-4-6",
+                "output_est": 0,
+                "input_est": 1000,
+                "result_turn": 1,  # result lands at turn 1 (before boundary)
+                "call_ts": 1.0,
+                "result_ts": 2.0,
+            },
+        ]
+        rows = [
+            {"kind": "turn", "turn_num": 1, "model": "claude-sonnet-4-6"},
+            {"kind": "turn", "turn_num": 2, "model": "claude-sonnet-4-6"},
+            {"kind": "turn", "turn_num": 3, "model": "claude-sonnet-4-6"},
+            {"kind": "system:compact_boundary"},
+            {"kind": "turn", "turn_num": 4, "model": "claude-sonnet-4-6"},
+            {"kind": "turn", "turn_num": 5, "model": "claude-sonnet-4-6"},
+        ]
+
+        # Without epoch awareness — accumulates over all 3 turns after
+        # result (turns 2, 3, 4 would all read it, so acc_turns=3).
+        costs_no_epoch = compute_tool_costs(invocations, total_turns=5)
+        assert costs_no_epoch["Read"]["accumulated"] == 1000 * 0.1 * 1.0 * 3
+
+        # With epoch awareness — only turns 2 and 3 remain in turn 1's
+        # epoch; the boundary cuts off further reads.
+        costs_epoch = compute_tool_costs(invocations, total_turns=5, rows=rows)
+        assert costs_epoch["Read"]["accumulated"] == 1000 * 0.1 * 1.0 * 2
+
+    def test_unknown_type_still_renders(self, tmp_path):
+        """Unknown types fall through to a generic builder so nothing is
+        silently dropped."""
+        path = self._write(tmp_path, [
+            {"type": "some-new-type", "timestamp": "2026-04-07T10:00:00Z",
+             "sessionId": "s1"},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "some-new-type"
+        assert "some-new-type" in rows[0]["what"]
+
+    def test_end_ts_tracks_split_turn_last_entry(self, tmp_path):
+        """A logical turn split across thinking/text/tool_use entries
+        should have end_ts = timestamp of the last entry, so the
+        renderer can compute model-generation duration."""
+        usage = {"input_tokens": 1, "output_tokens": 1,
+                 "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        path = self._write(tmp_path, [
+            {"type": "assistant", "uuid": "a1",
+             "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "assistant", "id": "m1",
+                         "model": "claude-sonnet-4-6",
+                         "content": [{"type": "thinking", "thinking": "..."}],
+                         "usage": usage}},
+            {"type": "assistant", "uuid": "a2",
+             "timestamp": "2026-04-07T10:00:14Z",
+             "message": {"role": "assistant", "id": "m1",
+                         "model": "claude-sonnet-4-6",
+                         "content": [{"type": "text", "text": "done"}],
+                         "usage": usage}},
+        ])
+        result = measure_usage.parse_transcript(path)
+        assert len(result["turns"]) == 1
+        t = result["turns"][0]
+        assert round(t["end_ts"] - t["ts"]) == 14
+
+    def test_last_tool_result_ts_latched_on_prev_turn(self, tmp_path):
+        """tool_result timestamps should land on the turn that fired
+        the tool, not on a new row, so the renderer can compute the
+        'gap' between tools finishing and the next turn starting."""
+        usage = {"input_tokens": 1, "output_tokens": 1,
+                 "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        path = self._write(tmp_path, [
+            {"type": "assistant", "uuid": "a1",
+             "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "assistant", "id": "m1",
+                         "model": "claude-sonnet-4-6",
+                         "content": [{"type": "tool_use", "id": "t1",
+                                      "name": "Bash",
+                                      "input": {"command": "sleep 5"}}],
+                         "usage": usage}},
+            {"type": "user", "timestamp": "2026-04-07T10:00:05Z",
+             "message": {"role": "user", "content": [
+                 {"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
+             ]}},
+            {"type": "assistant", "uuid": "a2",
+             "timestamp": "2026-04-07T10:00:08Z",
+             "message": {"role": "assistant", "id": "m2",
+                         "model": "claude-sonnet-4-6",
+                         "content": [{"type": "text", "text": "done"}],
+                         "usage": usage}},
+        ])
+        result = measure_usage.parse_transcript(path)
+        # tool_result row dropped; two turn rows remain.
+        assert len(result["rows"]) == 2
+        # Previous turn records when its tool finished.
+        t1, t2 = result["turns"]
+        assert t1["last_tool_result_ts"] is not None
+        t1_done = t1["last_tool_result_ts"]
+        # Second turn started 3s after the tool finished.
+        assert round(t2["ts"] - t1_done) == 3
+
+    def test_skill_base_dir_shim_dropped(self, tmp_path):
+        """The 'Base directory for this skill: …' preamble Claude Code
+        feeds back when a Skill tool fires is a client-side wrapper,
+        not a real user message — drop it."""
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content":
+                 "Base directory for this skill: /path/to/skill\n\n# Skill\n..."}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert rows == []
+
+    def test_task_notification_shim_dropped(self, tmp_path):
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content":
+                 "<task-notification><task-id>x</task-id><status>complete</status></task-notification>"}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert rows == []
+
+    def test_local_command_shim_dropped(self, tmp_path):
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content":
+                 "<local-command-stdout>installed ok</local-command-stdout>"}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert rows == []
+
+    def test_bash_input_shim_dropped(self, tmp_path):
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content":
+                 "<bash-input>git diff</bash-input>"}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert rows == []
+
+    def test_slash_command_extracted(self, tmp_path):
+        """Slash command wrappers carry real intent — render them
+        compactly instead of dropping."""
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content":
+                 "<command-message>simplify</command-message>\n"
+                 "<command-name>/simplify</command-name>\n"
+                 "<command-args>--no-tests</command-args>"}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "slash-command"
+        assert "/simplify" in rows[0]["what"]
+        assert "--no-tests" in rows[0]["what"]
+
+    def test_slash_command_no_args(self, tmp_path):
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content":
+                 "<command-message>compact</command-message>\n"
+                 "<command-name>/compact</command-name>"}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "slash-command"
+        assert rows[0]["what"] == "[slash] /compact"
+
+    def test_genuine_user_text_kept(self, tmp_path):
+        """Real user prompts must NOT be filtered by accident — only
+        client-side shim wrappers should be dropped."""
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content": "rewrite the function"}},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "user"
+        assert "rewrite the function" in rows[0]["what"]
+
+    def test_mixed_chronological_order(self, tmp_path):
+        """A mixed transcript produces rows in chronological order with
+        turns and non-turn events interleaved."""
+        path = self._write(tmp_path, [
+            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
+             "message": {"role": "user", "content": "first question"}},
+            {"type": "assistant", "uuid": "a1",
+             "timestamp": "2026-04-07T10:00:01Z",
+             "message": {"role": "assistant", "id": "msg_A",
+                         "model": "claude-sonnet-4-6",
+                         "content": [{"type": "text", "text": "Answer."}],
+                         "usage": {"input_tokens": 10, "output_tokens": 5,
+                                   "cache_creation_input_tokens": 0,
+                                   "cache_read_input_tokens": 100}}},
+            {"type": "permission-mode", "permissionMode": "acceptEdits",
+             "timestamp": "2026-04-07T10:00:02Z", "sessionId": "s1"},
+        ])
+        rows = measure_usage.parse_transcript(path)["rows"]
+        kinds = [r["kind"] for r in rows]
+        assert kinds == ["user", "turn", "permission-mode"]
+
+
+class TestShortAgentId:
+    def test_path(self):
+        assert measure_usage.short_agent_id(
+            "/x/agent-a048f2eedd306ffdc.jsonl"
+        ) == "a048"
+
+    def test_bare(self):
+        assert measure_usage.short_agent_id("agent-abcdef.jsonl") == "abcd"
+
+
+# ---------------------------------------------------------------------------
+# turns_table render_turns_report
+# ---------------------------------------------------------------------------
+
+class TestRenderTurnsReport:
+    def test_basic_session(self):
+        main_parsed = measure_usage.parse_transcript(str(FIXTURES / "basic_session.jsonl"))
+        out = measure_usage.render_turns_report(main_parsed, [])
+        assert "Main session" in out
+        assert "4 turns" in out
+        assert "Hello!" in out
+        assert "Read test.txt" in out
+        assert "in" in out and "cache_r" in out and "Tokens" in out
+
+    def test_with_subagents(self):
+        transcript = str(FIXTURES / "with_subagents.jsonl")
+        start_ts = measure_usage.parse_ts("2026-04-07T10:00:00Z")
+        main_parsed = measure_usage.parse_transcript(transcript, start_ts)
+        subagent_infos = measure_usage.find_subagent_transcripts(transcript, start_ts)
+        tree = measure_usage.build_agent_tree(transcript, main_parsed, subagent_infos)
+
+        out = measure_usage.render_turns_report(main_parsed, tree)
+        # Main section present
+        assert "Main session" in out
+        # Subagent section present
+        assert "parent turn 1" in out
+        # sub column populated on spawning turn
+        assert "↳" in out
+
+    def test_nested_subagents(self):
+        transcript = str(FIXTURES / "with_nested_subagents.jsonl")
+        start_ts = measure_usage.parse_ts("2026-04-07T10:00:00Z")
+        main_parsed = measure_usage.parse_transcript(transcript, start_ts)
+        subagent_infos = measure_usage.find_subagent_transcripts(transcript, start_ts)
+        tree = measure_usage.build_agent_tree(transcript, main_parsed, subagent_infos)
+
+        out = measure_usage.render_turns_report(main_parsed, tree)
+        # Both the parent and the nested child should get their own tables.
+        assert out.count("parent turn") >= 2
+        # The main's spawning turn's row should show a subtree Seq (i.e. include
+        # child + grandchild rolled up), so the rendered report mentions
+        # "subtree" for nested nodes.
+        assert "subtree" in out
+
+
+# ---------------------------------------------------------------------------
+# turn_seq
+# ---------------------------------------------------------------------------
+
+class TestTurnSeq:
+    def test_sonnet_cache_read_dominated(self):
+        row = {
+            "model": "claude-sonnet-4-6",
+            "in_tokens": 100,
+            "out_tokens": 20,
+            "cache_r": 10000,
+            "cache_w": 0,
+        }
+        # 10000*0.1 + 100*1 + 0 + 20*5 = 1200
+        assert measure_usage.turn_seq(row) == pytest.approx(1200)
+
+    def test_opus_scaling(self):
+        row = {
+            "model": "claude-opus-4-6",
+            "in_tokens": 100,
+            "out_tokens": 0,
+            "cache_r": 0,
+            "cache_w": 0,
+        }
+        # 100 * 5/3 = 166.666...
+        assert measure_usage.turn_seq(row) == pytest.approx(100 * 5 / 3)
