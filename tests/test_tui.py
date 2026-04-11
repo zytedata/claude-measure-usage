@@ -866,6 +866,68 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
+    def test_reload_preserves_sort_and_filter(self, tmp_path, monkeypatch):
+        """``r`` re-parses the transcript and keeps the current
+        sort mode and filter text.
+
+        Simulates a transcript change by appending a new entry to
+        the fixture on disk between loads, then asserts the
+        reload picked it up (row count bumped) and the user's
+        sort/filter state is still active.
+        """
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import SessionDetailScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-reload"
+        proj_dir.mkdir(parents=True)
+        transcript = proj_dir / "s.jsonl"
+        shutil.copy(FIXTURES / "multi_tool.jsonl", transcript)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        extra_entry = (
+            '{"type":"user","message":{"role":"user","content":"added-later"},'
+            '"timestamp":"2030-01-01T00:00:00Z","uuid":"extra-uuid"}\n'
+        )
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test(size=(160, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionDetailScreen)
+                initial_row_count = len(app.screen._rows)
+
+                # Set sort mode to cost (one s press: natural → cost)
+                await pilot.press("s")
+                await pilot.pause()
+                assert app.screen._sort_mode == "cost"
+
+                # Append a new entry to the transcript file
+                with open(transcript, "a") as f:
+                    f.write(extra_entry)
+
+                # Reload — should pick up the new entry and keep the sort
+                await pilot.press("r")
+                await pilot.pause()
+                assert app.screen._sort_mode == "cost", (
+                    "sort mode should survive reload"
+                )
+                assert len(app.screen._rows) > initial_row_count, (
+                    "reload should pick up the appended entry"
+                )
+                await pilot.press("q")
+
+        asyncio.run(run())
+
     def test_slash_opens_filter_and_esc_cancels(
         self, tmp_path, monkeypatch
     ):

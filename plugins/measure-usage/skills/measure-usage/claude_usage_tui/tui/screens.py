@@ -383,7 +383,11 @@ class SessionScreen(Screen):
             self._project.cwd_display,
             short_datetime(entry.started_ts) or entry.session_id[:8],
         ])
-        self.app.push_screen(SessionDetailScreen(title, parsed, tree))
+        self.app.push_screen(
+            SessionDetailScreen(
+                title, parsed, tree, transcript_path=entry.transcript_path,
+            )
+        )
 
     def action_back(self) -> None:
         self.app.pop_screen()
@@ -415,6 +419,7 @@ class SessionDetailScreen(Screen):
     BINDINGS = [
         Binding("s", "cycle_sort", "Sort"),
         Binding("slash", "open_filter", "Filter"),
+        Binding("r", "reload", "Reload"),
         Binding("escape", "back", "Back"),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
@@ -446,11 +451,17 @@ class SessionDetailScreen(Screen):
         title: str,
         parsed: dict,
         tree: list[dict],
+        transcript_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._title = title
         self._parsed = parsed
         self._tree = tree
+        # Only the top-level session detail screen carries a
+        # transcript path; subagent drill-ins pass None because
+        # their data comes from the parent session's agent tree,
+        # not from a file path we can re-read.
+        self._transcript_path = transcript_path
         self._rows: list[DetailRow] = []
         self._sort_mode = "natural"
         self._filter_text = ""
@@ -548,6 +559,38 @@ class SessionDetailScreen(Screen):
         mode_ids = [m[0] for m in SORT_MODES]
         idx = mode_ids.index(self._sort_mode) if self._sort_mode in mode_ids else 0
         self._sort_mode = mode_ids[(idx + 1) % len(mode_ids)]
+        self._repopulate_table()
+
+    def action_reload(self) -> None:
+        """Re-parse the transcript from disk and rebuild the rows.
+
+        Preserves the current sort mode and filter text so a
+        user who's set up a filter doesn't have to re-type it
+        on reload.
+
+        No-op on subagent drill-in screens — those don't own a
+        file path; they'd need to reload the parent session
+        instead, which is better expressed by popping back and
+        reloading there.
+        """
+        if self._transcript_path is None:
+            return
+        from ..parse import (
+            build_agent_tree,
+            find_subagent_transcripts,
+            parse_transcript,
+        )
+
+        path = str(self._transcript_path)
+        self._parsed = parse_transcript(path)
+        sub_infos = find_subagent_transcripts(path, 0)
+        self._tree = build_agent_tree(path, self._parsed, sub_infos)
+        self._rows = build_detail_rows(self._parsed, self._tree)
+        # Refresh the top-of-table header too — turn count and
+        # totals may have changed since the screen first loaded.
+        self.query_one("#detail_header", Label).update(
+            self._build_header_text()
+        )
         self._repopulate_table()
 
     def action_open_filter(self) -> None:
