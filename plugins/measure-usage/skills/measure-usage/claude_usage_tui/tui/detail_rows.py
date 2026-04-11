@@ -182,7 +182,7 @@ def _subagent_row(child: dict, t0: float) -> DetailRow:
     if desc:
         label_parts.append(f'"{desc}"')
     if turn_count:
-        label_parts.append(f"— {turn_count}t")
+        label_parts.append(f"— {turn_count} turn{'s' if turn_count != 1 else ''}")
     label = " ".join(label_parts)
 
     sub_rows = child.get("rows") or child.get("turns") or []
