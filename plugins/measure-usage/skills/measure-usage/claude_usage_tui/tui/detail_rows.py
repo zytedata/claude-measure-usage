@@ -28,6 +28,62 @@ from .format import short_tokens, tiny_model
 
 
 # ---------------------------------------------------------------------------
+# Cost breakdown
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class TurnCostBreakdown:
+    """Everything the modal needs to explain a turn's total cost.
+
+    Splits the parent turn's ``own`` figure into its ``self`` and
+    ``subagents`` components so the modal can render:
+
+        Cost:     180.4K   (= own 176.2K + carry 4.2K + caused +1K)
+          own decomposes as:
+            self           2.9K
+            subagents    173.3K
+
+    ``cost = own + inherit`` matches the Cost cell in the table.
+    ``own = self + subagents`` keeps the parent row's own figure
+    honest for sort-by-cost without hiding the breakdown.
+    ``caused`` is a forward projection — not part of ``cost``.
+    """
+
+    self_seq: float
+    subagents_seq: float
+    own: float
+    inherit: float
+    cost: float
+    caused: float
+
+
+def turn_cost_breakdown(
+    turn: dict,
+    children: list[dict],
+    caused_seq: float,
+) -> TurnCostBreakdown:
+    """Compute the per-turn cost decomposition shown in the modal.
+
+    Kept as a standalone helper so the table row builder and the
+    modal agree on the math by construction — if Cost changes, it
+    changes in one place.
+    """
+    self_seq = turn_own_seq(turn)
+    subagents_seq = sum(_node_subtree_seq(c) for c in children)
+    own = self_seq + subagents_seq
+    inherit = turn_inherit_seq(turn)
+    cost = own + inherit
+    return TurnCostBreakdown(
+        self_seq=self_seq,
+        subagents_seq=subagents_seq,
+        own=own,
+        inherit=inherit,
+        cost=cost,
+        caused=caused_seq,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Row dataclass
 # ---------------------------------------------------------------------------
 
@@ -127,8 +183,6 @@ def _turn_row(
     prev_turn: dict | None,
     children: list[dict],
 ) -> DetailRow:
-    own_self = turn_own_seq(t)
-    inherit = turn_inherit_seq(t)
     # Parent turn's `own` / `cost` deliberately roll up the
     # subtree cost of every subagent this turn spawned (see
     # docs/tui-ux.md — "Accounting"). This keeps sort-by-cost
@@ -136,10 +190,11 @@ def _turn_row(
     # to the top instead of hiding behind its cheap self-cost.
     # The subagent footnote rows below still surface each
     # subagent's individual contribution for visual breakdown.
-    sub_seq = sum(_node_subtree_seq(c) for c in children)
-    own = own_self + sub_seq
-    cost = own + inherit
     caused = caused_by_turn.get(t["turn_num"], 0.0)
+    breakdown = turn_cost_breakdown(t, children, caused)
+    own = breakdown.own
+    cost = breakdown.cost
+    inherit = breakdown.inherit
 
     return DetailRow(
         kind="turn",
@@ -157,7 +212,9 @@ def _turn_row(
         out=short_tokens(t.get("out_tokens", 0)),
         cache_r=short_tokens(t.get("cache_r", 0)),
         cache_w=short_tokens(t.get("cache_w", 0)),
-        raw={"turn": t},
+        # Stash the primitives the modal needs so it doesn't
+        # have to re-walk the tree to compute the decomposition.
+        raw={"turn": t, "children": children, "breakdown": breakdown},
     )
 
 

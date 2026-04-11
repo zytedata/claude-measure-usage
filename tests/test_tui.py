@@ -545,6 +545,146 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
+    def test_turn_modal_opens_and_lists_subagents(
+        self, tmp_path, monkeypatch
+    ):
+        """Enter on a turn-with-subagents row opens the modal and
+        populates its subagent OptionList.
+
+        Uses a fixture transcript that actually spawns subagents so
+        we don't have to fabricate a fake tree. The sub_title and
+        row count are asserted as basic liveness checks, then the
+        modal is dismissed cleanly.
+        """
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable, OptionList
+        from textual.coordinate import Coordinate
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import (
+            ProjectScreen,
+            SessionDetailScreen,
+            SessionScreen,
+            TurnDetailModal,
+        )
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-sub"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(
+            FIXTURES / "with_subagents.jsonl", proj_dir / "session.jsonl"
+        )
+        # Subagent transcripts live in a sibling dir named after the
+        # session; the fixture already has that layout at
+        # fixtures/with_subagents/ — copy it across.
+        subagent_src = FIXTURES / "with_subagents"
+        if subagent_src.exists():
+            shutil.copytree(subagent_src, proj_dir / "session")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test(size=(160, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("enter")  # open project
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                await pilot.press("enter")  # open session
+                await pilot.pause()
+                assert isinstance(app.screen, SessionDetailScreen)
+                detail = app.screen
+                rows = detail._rows
+                turn_with_sub = next(
+                    (
+                        i for i, r in enumerate(rows)
+                        if r.kind == "turn"
+                        and i + 1 < len(rows)
+                        and rows[i + 1].kind == "subagent"
+                    ),
+                    None,
+                )
+                assert turn_with_sub is not None, (
+                    "fixture should have a turn that spawned subagents"
+                )
+                table = detail.query_one(DataTable)
+                table.cursor_coordinate = Coordinate(turn_with_sub, 0)
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, TurnDetailModal)
+                modal = app.screen
+                assert modal._children, "modal should have subagent list"
+                sub_list = modal.query_one("#sub_list", OptionList)
+                assert sub_list.option_count == len(modal._children)
+                # Dismiss cleanly
+                await pilot.press("escape")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionDetailScreen)
+                await pilot.press("q")
+
+        asyncio.run(run())
+
+    def test_subagent_row_enter_drills_into_new_detail_screen(
+        self, tmp_path, monkeypatch
+    ):
+        """Pressing Enter on a subagent footnote row pushes a new
+        SessionDetailScreen whose title carries the drill breadcrumb.
+        """
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable
+        from textual.coordinate import Coordinate
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import SessionDetailScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-sub"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(
+            FIXTURES / "with_subagents.jsonl", proj_dir / "session.jsonl"
+        )
+        subagent_src = FIXTURES / "with_subagents"
+        if subagent_src.exists():
+            shutil.copytree(subagent_src, proj_dir / "session")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test(size=(160, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionDetailScreen)
+                parent_title = app.screen._title
+                detail = app.screen
+                sub_row_idx = next(
+                    i for i, r in enumerate(detail._rows)
+                    if r.kind == "subagent"
+                )
+                table = detail.query_one(DataTable)
+                table.cursor_coordinate = Coordinate(sub_row_idx, 0)
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionDetailScreen)
+                # Different screen instance — a nested one was pushed
+                assert app.screen is not detail
+                # Breadcrumb appended to title
+                assert "↳" in app.screen._title
+                assert app.screen._title.startswith(parent_title)
+                # Esc pops back to parent
+                await pilot.press("escape")
+                await pilot.pause()
+                assert app.screen is detail
+                await pilot.press("q")
+
+        asyncio.run(run())
+
     def test_drill_to_session_detail_and_back(self, tmp_path, monkeypatch):
         """Navigation Project → Session → Detail → back stack pops.
 
