@@ -1,19 +1,20 @@
 """``python -m claude_usage_tui`` — launches the interactive TUI.
 
-The TUI is not implemented yet. For the text report used by the
-``/measure-usage`` skill, run ``python -m claude_usage_tui.plain``.
+The ``claude-usage-tui`` console script from :mod:`pyproject.toml`
+resolves to :func:`main` here too, so both invocation forms share
+one entry point. The TUI implementation lives in
+:mod:`claude_usage_tui.tui.app`.
+
+Textual is imported lazily inside :func:`main` so that simply
+importing :mod:`claude_usage_tui` — which the plain CLI and the
+re-export facade both do — never pulls Textual into ``sys.modules``.
 """
 
-import sys
 
+def main() -> None:
+    from .tui.app import main as _tui_main
 
-def main():
-    print(
-        "The claude-usage-tui interactive UI is not implemented yet.\n"
-        "For the text report, run: python -m claude_usage_tui.plain",
-        file=sys.stderr,
-    )
-    sys.exit(2)
+    _tui_main()
 
 
 if __name__ == "__main__":
