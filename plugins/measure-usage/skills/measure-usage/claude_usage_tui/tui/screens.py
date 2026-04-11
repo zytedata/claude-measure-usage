@@ -142,21 +142,13 @@ class SessionScreen(Screen):
     SessionScreen #loading.-hidden {
         display: none;
     }
-    SessionScreen #legend {
-        height: 1;
-        padding: 0 2;
-        color: $text-muted;
-    }
     """
 
-    # Spelled out so readers don't confuse the Tokens column
-    # (Sonnet input-equivalent, normalized across token type and
-    # model) with the raw peak-context count shown alongside.
-    # Matches the legend line the plain text CLI prints.
-    LEGEND = (
-        "Tokens: Sonnet input-equivalent, normalized across models "
-        "and token types. Peak ctx: raw."
-    )
+    # Tacked onto the sub_title so the normalization behind the
+    # "Token usage" column is documented inline without costing a
+    # dedicated legend row. Peak ctx stays raw; the column name
+    # speaks for itself.
+    USAGE_UNIT_NOTE = "usage is Sonnet input-equivalent"
 
     def __init__(self, project: ProjectEntry) -> None:
         super().__init__()
@@ -168,7 +160,6 @@ class SessionScreen(Screen):
         with Horizontal(id="loading"):
             yield Label("Loading sessions…", id="loading_label")
             yield ProgressBar(id="loading_bar", show_eta=False)
-        yield Label(self.LEGEND, id="legend")
         table: DataTable[str] = DataTable(id="sessions", zebra_stripes=True)
         table.cursor_type = "row"
         yield table
@@ -182,7 +173,7 @@ class SessionScreen(Screen):
         table = self.query_one(DataTable)
         table.add_column("Started", width=18)
         table.add_column("Turns", width=6)
-        table.add_column("Tokens", width=10)
+        table.add_column("Token usage", width=12)
         table.add_column("Peak ctx", width=10)
         table.add_column("Model", width=8)
         table.add_column("Summary")
@@ -309,6 +300,7 @@ class SessionScreen(Screen):
         parts = [
             self._project.cwd_display,
             f"{len(self._entries)} sessions",
+            self.USAGE_UNIT_NOTE,
         ]
         if skipped:
             parts.append(f"{len(skipped)} skipped")
