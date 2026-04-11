@@ -343,6 +343,106 @@ class TestBuildDetailRows:
                 assert r.what
 
 
+class TestGluedSort:
+    """Verify the glued-sort contract from docs/tui-ux.md.
+
+    Uses synthetic DetailRow fixtures so the assertions can be
+    tight on ordering without fighting real fixture variance.
+    """
+
+    def _mk_turn(self, num: int, cost: float, own: float = None, took: float = 0.0):
+        return detail_rows.DetailRow(
+            kind="turn",
+            num=str(num),
+            cost=str(cost),
+            raw={
+                "turn": {"turn_num": num},
+                "children": [],
+                "sort_keys": {
+                    "cost": cost,
+                    "own": own if own is not None else cost,
+                    "took": took,
+                    "ctx": 0.0,
+                },
+            },
+        )
+
+    def _mk_sub(self, sid: str):
+        return detail_rows.DetailRow(kind="subagent", num=f"↳{sid}")
+
+    def _mk_nonturn(self, label: str):
+        return detail_rows.DetailRow(kind="nonturn", what=label)
+
+    def test_natural_returns_unchanged(self):
+        rows = [
+            self._mk_nonturn("lead"),
+            self._mk_turn(1, 10.0),
+        ]
+        assert detail_rows.sort_rows(rows, "natural") is rows
+
+    def test_unknown_mode_is_safe(self):
+        rows = [self._mk_turn(1, 10.0)]
+        assert detail_rows.sort_rows(rows, "bogus") == rows
+
+    def test_glue_subagent_to_turn(self):
+        rows = [
+            self._mk_turn(1, 5.0),
+            self._mk_sub("a"),
+            self._mk_turn(2, 15.0),
+            self._mk_sub("b"),
+            self._mk_turn(3, 10.0),
+        ]
+        out = detail_rows.sort_rows(rows, "cost")
+        # Turn 2 (highest cost) first with its ↳b, then turn 3,
+        # then turn 1 with ↳a.
+        assert [r.num for r in out] == ["2", "↳b", "3", "1", "↳a"]
+
+    def test_leading_nonturn_travels_with_turn(self):
+        rows = [
+            self._mk_nonturn("user: fix auth"),
+            self._mk_turn(1, 5.0),
+            self._mk_nonturn("user: and also this"),
+            self._mk_turn(2, 15.0),
+            self._mk_turn(3, 10.0),
+        ]
+        out = detail_rows.sort_rows(rows, "cost")
+        kinds = [(r.kind, r.num or r.what) for r in out]
+        assert kinds == [
+            ("nonturn", "user: and also this"),
+            ("turn", "2"),
+            ("turn", "3"),
+            ("nonturn", "user: fix auth"),
+            ("turn", "1"),
+        ]
+
+    def test_tail_orphan_stays_at_end(self):
+        rows = [
+            self._mk_turn(1, 5.0),
+            self._mk_turn(2, 20.0),
+            self._mk_nonturn("compact boundary"),
+        ]
+        out = detail_rows.sort_rows(rows, "cost")
+        assert [(r.kind, r.num or r.what) for r in out] == [
+            ("turn", "2"),
+            ("turn", "1"),
+            ("nonturn", "compact boundary"),
+        ]
+
+    def test_own_vs_cost_sorts_different(self):
+        # Turns where cost and own rank differently (simulates a
+        # turn that's cheap in own but expensive in total because
+        # of carry, or vice versa). The sort key should be the
+        # one the user picked.
+        rows = [
+            self._mk_turn(1, cost=100.0, own=10.0),
+            self._mk_turn(2, cost=50.0, own=40.0),
+        ]
+        by_cost = detail_rows.sort_rows(rows, "cost")
+        assert [r.num for r in by_cost] == ["1", "2"]
+        by_own = detail_rows.sort_rows(rows, "own")
+        assert [r.num for r in by_own] == ["2", "1"]
+
+
 class TestProjectForCwd:
     def test_matches_existing_dir(self, tmp_path):
         root = tmp_path / "projects"
@@ -542,6 +642,54 @@ class TestProjectScreenPilot:
                     assert table.row_count == 1
                     assert "skipped" in app.screen.sub_title
                     await pilot.press("q")
+
+        asyncio.run(run())
+
+    def test_s_cycles_sort_mode(self, tmp_path, monkeypatch):
+        """Pressing ``s`` on the detail screen cycles sort modes
+        and reorders the DataTable rows."""
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import SessionDetailScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-sort"
+        proj_dir.mkdir(parents=True)
+        # multi_tool fixture has several turns with different costs
+        shutil.copy(FIXTURES / "multi_tool.jsonl", proj_dir / "s.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test(size=(160, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionDetailScreen)
+                assert app.screen._sort_mode == "natural"
+                # First press — natural → cost
+                await pilot.press("s")
+                await pilot.pause()
+                assert app.screen._sort_mode == "cost"
+                assert "sort: cost" in app.screen.sub_title
+                # Second press — cost → own
+                await pilot.press("s")
+                await pilot.pause()
+                assert app.screen._sort_mode == "own"
+                # Cycle all the way back to natural
+                await pilot.press("s")  # own → took
+                await pilot.press("s")  # took → ctx
+                await pilot.press("s")  # ctx → natural
+                await pilot.pause()
+                assert app.screen._sort_mode == "natural"
+                assert "sort:" not in app.screen.sub_title
+                await pilot.press("q")
 
         asyncio.run(run())
 

@@ -195,12 +195,13 @@ def _turn_row(
     own = breakdown.own
     cost = breakdown.cost
     inherit = breakdown.inherit
+    took_secs = _turn_span_secs(t, prev_turn)
 
     return DetailRow(
         kind="turn",
         num=str(t["turn_num"]),
         when=_fmt_trel(t["ts"] - t0) if t.get("ts") is not None else "",
-        took=_fmt_took(t, prev_turn),
+        took=_fmt_secs(took_secs),
         cost=short_tokens(round(cost)),
         own=short_tokens(round(own)),
         carry=short_tokens(round(inherit)),
@@ -214,7 +215,20 @@ def _turn_row(
         cache_w=short_tokens(t.get("cache_w", 0)),
         # Stash the primitives the modal needs so it doesn't
         # have to re-walk the tree to compute the decomposition.
-        raw={"turn": t, "children": children, "breakdown": breakdown},
+        # ``sort_keys`` lets the glued-sort logic rank turn blocks
+        # by numeric values instead of re-parsing the formatted
+        # cell strings.
+        raw={
+            "turn": t,
+            "children": children,
+            "breakdown": breakdown,
+            "sort_keys": {
+                "cost": cost,
+                "own": own,
+                "took": took_secs,
+                "ctx": float(t.get("ctx", 0)),
+            },
+        },
     )
 
 
@@ -259,6 +273,99 @@ def _subagent_row(child: dict, t0: float) -> DetailRow:
         model=tiny_model(dominant),
         raw={"subagent": child, "subtree_seq": subtree_seq},
     )
+
+
+# ---------------------------------------------------------------------------
+# Glued sort
+# ---------------------------------------------------------------------------
+
+# Mode ids -> column keys used in DetailRow.raw["sort_keys"]. The
+# UI surfaces these human-readable labels; the cycle binding walks
+# through them in this order.
+SORT_MODES: list[tuple[str, str | None]] = [
+    ("natural", None),
+    ("cost", "cost"),
+    ("own", "own"),
+    ("took", "took"),
+    ("ctx", "ctx"),
+]
+
+
+def sort_rows(
+    rows: list[DetailRow],
+    mode: str,
+) -> list[DetailRow]:
+    """Reorder a detail-row stream under the glued-sort rules.
+
+    Non-``"natural"`` modes reorder turn rows by their numeric
+    sort key while keeping the spawn relationship intact:
+
+    - **Glue**: every subagent footnote row stays immediately
+      after its spawning turn. A row block is one turn row plus
+      its trailing subagents.
+    - **Anchored non-turns**: a non-turn row that precedes a
+      turn is treated as the turn's "lead-in" (user prompt,
+      attachment, permission change) and travels with the turn
+      when it moves. This preserves the "this event led to this
+      turn" reading order.
+    - **Orphan tail**: non-turn rows that follow the last turn
+      with no further turn to attach to (compact boundaries,
+      trailing slash commands) stay pinned at the end in natural
+      order, regardless of sort mode — they're session-level
+      markers, not per-turn data.
+
+    ``mode == "natural"`` returns the input unchanged (no copy).
+    Unknown modes also pass through unchanged so an accidental
+    bad mode id never loses data.
+    """
+    if mode == "natural":
+        return rows
+    key_name = dict(SORT_MODES).get(mode)
+    if key_name is None:
+        return rows
+    blocks, tail = _group_blocks(rows)
+
+    def block_key(block: list[DetailRow]) -> float:
+        turn = next(r for r in block if r.kind == "turn")
+        sort_keys = turn.raw.get("sort_keys") or {}
+        return -float(sort_keys.get(key_name, 0.0))
+
+    blocks.sort(key=block_key)
+    out: list[DetailRow] = []
+    for block in blocks:
+        out.extend(block)
+    out.extend(tail)
+    return out
+
+
+def _group_blocks(
+    rows: list[DetailRow],
+) -> tuple[list[list[DetailRow]], list[DetailRow]]:
+    """Split a row stream into (turn blocks, orphan tail).
+
+    Each turn block is a list of ``DetailRow`` objects consisting
+    of: zero or more leading non-turn rows + one turn row + zero
+    or more trailing subagent footnote rows. The orphan tail
+    holds any non-turn rows that trail after the last turn.
+    """
+    blocks: list[list[DetailRow]] = []
+    lead_buffer: list[DetailRow] = []
+    current: list[DetailRow] | None = None
+
+    for r in rows:
+        if r.kind == "turn":
+            block = lead_buffer + [r]
+            blocks.append(block)
+            current = block
+            lead_buffer = []
+        elif r.kind == "subagent" and current is not None:
+            current.append(r)
+        else:  # nonturn (or unclassified) — buffer for the next turn
+            lead_buffer.append(r)
+            current = None
+    # Anything left in the buffer is a tail orphan. These stay
+    # pinned at the end because they have no turn to attach to.
+    return blocks, lead_buffer
 
 
 def _nonturn_row(r: dict, t0: float) -> DetailRow:
@@ -352,24 +459,30 @@ def _fmt_secs(delta: float | None) -> str:
     return f"{h}h{m:02d}m"
 
 
-def _fmt_took(turn: dict, prev_turn: dict | None) -> str:
-    """Turn wallclock: pre-turn wait + this turn's work.
+def _turn_span_secs(turn: dict, prev_turn: dict | None) -> float:
+    """Wallclock span for a turn, in seconds.
 
-    Mirrors the text CLI's ``took`` column — see
+    Spans from the end of the previous turn's tool execution to
+    the end of this turn's own work, so the interval bundles
+    pre-turn API wait with this turn's generation + tools. See
     :func:`claude_usage_tui.plain.turns_table._fmt_time` for the
     original treatment and rationale.
+
+    Returns 0 when there's no meaningful span (first turn, no
+    tools on the previous turn, missing timestamps).
     """
     ts = turn.get("ts")
     if ts is None:
-        return ""
+        return 0.0
     end = turn.get("end_ts") or ts
     tool_end = turn.get("last_tool_result_ts") or 0
     end = max(end, tool_end)
+    start = ts
     if prev_turn is not None:
         prev_done = prev_turn.get("last_tool_result_ts")
         if prev_done is not None:
-            ts = min(ts, prev_done)
-    return _fmt_secs(end - ts)
+            start = min(ts, prev_done)
+    return max(0.0, end - start)
 
 
 def _fmt_subagent_took(sub_rows: list[dict]) -> str:

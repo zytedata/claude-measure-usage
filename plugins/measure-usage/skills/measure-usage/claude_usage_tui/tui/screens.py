@@ -28,9 +28,11 @@ from textual.widgets.option_list import Option
 from ..metrics import model_aware_cost_breakdown
 from ..turns_label import short_agent_id
 from .detail_rows import (
+    SORT_MODES,
     DetailRow,
     TurnCostBreakdown,
     build_detail_rows,
+    sort_rows,
     turn_cost_breakdown,
 )
 from .discovery import (
@@ -409,6 +411,7 @@ class SessionDetailScreen(Screen):
     """
 
     BINDINGS = [
+        Binding("s", "cycle_sort", "Sort"),
         Binding("escape", "back", "Back"),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
@@ -438,6 +441,7 @@ class SessionDetailScreen(Screen):
         self._parsed = parsed
         self._tree = tree
         self._rows: list[DetailRow] = []
+        self._sort_mode = "natural"
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -449,7 +453,6 @@ class SessionDetailScreen(Screen):
 
     def on_mount(self) -> None:
         self._rows = build_detail_rows(self._parsed, self._tree)
-        self.sub_title = f"{self._title}  —  {self.USAGE_UNIT_NOTE}"
         self.query_one("#detail_header", Label).update(self._build_header_text())
 
         table = self.query_one(DataTable)
@@ -468,12 +471,33 @@ class SessionDetailScreen(Screen):
         table.add_column("cache_r", width=9)
         table.add_column("cache_w", width=9)
 
-        for row in self._rows:
-            table.add_row(*_cells_for(row))
+        self._repopulate_table()
+        table.focus()
 
+    def _repopulate_table(self) -> None:
+        """Rebuild the DataTable contents for the current sort mode.
+
+        Clears the table and re-adds rows from ``sort_rows``.
+        DataTable.clear() is O(rows) but the row count is small
+        (hundreds) so this is cheap relative to parsing the
+        transcript — we don't bother diffing.
+        """
+        table = self.query_one(DataTable)
+        table.clear()
+        visible = sort_rows(self._rows, self._sort_mode)
+        self._visible_rows = visible
+        for row in visible:
+            table.add_row(*_cells_for(row))
         if table.row_count:
             table.cursor_coordinate = Coordinate(0, 0)
-        table.focus()
+        self.sub_title = self._build_sub_title()
+
+    def _build_sub_title(self) -> str:
+        """Sub_title shows breadcrumb + unit note + sort indicator."""
+        parts = [self._title, self.USAGE_UNIT_NOTE]
+        if self._sort_mode != "natural":
+            parts.append(f"sort: {self._sort_mode} ▼")
+        return "  —  ".join(parts)
 
     def _build_header_text(self) -> str:
         """One-line header above the table with session-level totals."""
@@ -494,13 +518,21 @@ class SessionDetailScreen(Screen):
         ]
         return "  ·  ".join(parts)
 
+    def action_cycle_sort(self) -> None:
+        """Advance to the next sort mode in :data:`SORT_MODES`."""
+        mode_ids = [m[0] for m in SORT_MODES]
+        idx = mode_ids.index(self._sort_mode) if self._sort_mode in mode_ids else 0
+        self._sort_mode = mode_ids[(idx + 1) % len(mode_ids)]
+        self._repopulate_table()
+
     def on_data_table_row_selected(
         self, event: DataTable.RowSelected
     ) -> None:
         idx = event.cursor_row
-        if idx is None or idx >= len(self._rows):
+        visible = getattr(self, "_visible_rows", self._rows)
+        if idx is None or idx >= len(visible):
             return
-        row = self._rows[idx]
+        row = visible[idx]
         if row.kind == "turn":
             self.app.push_screen(
                 TurnDetailModal(row),
