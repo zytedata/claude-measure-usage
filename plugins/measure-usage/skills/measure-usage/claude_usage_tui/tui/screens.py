@@ -504,6 +504,12 @@ class SessionDetailScreen(Screen):
         Column keys double as ids for the sort-highlight helper
         and the header-click handler. Keep these stable; sort
         mode entries in :data:`SORT_MODES` reference them by id.
+
+        Each sortable column's width has to accommodate the
+        header label plus a trailing ``" ▼"`` (2 chars) so the
+        active-sort indicator doesn't get truncated when the
+        column becomes the active sort — ``caused`` at width 7
+        used to clip the arrow to ``caused ▼`` → ``caused ▼``.
         """
         return [
             ("#", "num", 6),
@@ -512,7 +518,7 @@ class SessionDetailScreen(Screen):
             ("cost", "cost", 9),
             ("own", "own", 9),
             ("carry", "carry", 9),
-            ("caused", "caused", 7),
+            ("caused", "caused", 9),
             ("what", "what", 50),
             ("ctx", "ctx", 8),
             ("model", "model", 7),

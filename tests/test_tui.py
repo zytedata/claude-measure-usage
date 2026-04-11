@@ -343,6 +343,32 @@ class TestBuildDetailRows:
                 assert r.what
 
 
+class TestColumnWidthsFitSortIndicator:
+    """Every sortable column must be wide enough for ``label ▼``.
+
+    The sort-highlight helper appends a trailing ``" ▼"`` to the
+    active sort column's header label. If the column was sized
+    to the plain label width the arrow gets truncated at render
+    time — invisible to the user, who then thinks the binding is
+    broken. This test guards against that regression for every
+    sortable column in the spec.
+    """
+
+    def test_every_sortable_column_has_room_for_arrow(self):
+        from claude_usage_tui.tui.screens import SessionDetailScreen
+
+        sortable_columns = {
+            m.column_id for m in detail_rows.SORT_MODES
+        }
+        for label, key, width in SessionDetailScreen._column_spec():
+            if key in sortable_columns:
+                required = len(label) + 2  # " ▼"
+                assert width >= required, (
+                    f"column {key!r} has width {width}, needs "
+                    f"at least {required} to fit '{label} ▼'"
+                )
+
+
 class TestSortModes:
     """Coverage for the SORT_MODES cycle shape and lookup helpers."""
 
