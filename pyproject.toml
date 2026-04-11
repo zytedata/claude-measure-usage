@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-usage-tui"
+version = "0.0.1"
+description = "Interactive TUI for debugging token usage of Claude Code sessions"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Mikhail Korobov" }]
+keywords = ["claude", "claude-code", "tokens", "usage", "tui", "textual"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Debuggers",
+]
+dependencies = [
+    "textual>=0.80",
+]
+
+[project.scripts]
+claude-usage-tui = "claude_usage_tui.__main__:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+# The package source lives under the Claude Code plugin tree so the
+# same files can be loaded by the /measure-usage skill. Point hatch
+# at that path so the built wheel still contains a top-level
+# `claude_usage_tui/` package.
+[tool.hatch.build.targets.wheel]
+packages = ["plugins/measure-usage/skills/measure-usage/claude_usage_tui"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "plugins/measure-usage/skills/measure-usage/claude_usage_tui/**",
+    "README.md",
+    "pyproject.toml",
+    "tests/**",
+]
