@@ -16,6 +16,8 @@ from textual.coordinate import Coordinate
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Label, ProgressBar
 
+from ..metrics import model_aware_cost_breakdown
+from .detail_rows import DetailRow, build_detail_rows
 from .discovery import (
     ProjectEntry,
     SessionEntry,
@@ -334,8 +336,144 @@ class SessionScreen(Screen):
     def on_data_table_row_selected(
         self, event: DataTable.RowSelected
     ) -> None:
-        # Session detail screen lands in the next commit; for now
-        # the row-select is a no-op so the other bindings still work.
+        row_idx = event.cursor_row
+        if row_idx is None or row_idx >= len(self._entries):
+            return
+        entry = self._entries[row_idx]
+        self.app.push_screen(SessionDetailScreen(self._project, entry))
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
+
+    def action_quit(self) -> None:
+        self.app.exit()
+
+    def action_help(self) -> None:
+        pass
+
+
+class SessionDetailScreen(Screen):
+    """Per-session drill-in: turn table with subagent footnotes.
+
+    Shows the full timeline of a single transcript — model turns,
+    non-turn timeline entries (user messages, slash commands,
+    attachments), and subagent footnote rows dimmed beneath the
+    turns that spawned them. Parse happens synchronously in
+    ``on_mount`` because we've already paid once at the session
+    picker (loads are cached in the session loader in a future
+    commit); a second parse of a single file is cheap.
+
+    Sort, filter, and the turn detail modal are deferred to later
+    commits per docs/tui-ux.md.
+    """
+
+    BINDINGS = [
+        Binding("escape", "back", "Back"),
+        Binding("q", "quit", "Quit"),
+        Binding("?", "help", "Help"),
+    ]
+
+    DEFAULT_CSS = """
+    SessionDetailScreen #detail_header {
+        height: auto;
+        padding: 0 2 1 2;
+        color: $text-muted;
+    }
+    SessionDetailScreen DataTable {
+        height: 1fr;
+    }
+    """
+
+    # Appended to sub_title so readers remember the cost columns
+    # are derived, not raw. Same convention as SessionScreen.
+    USAGE_UNIT_NOTE = "cost columns are Sonnet input-equivalent"
+
+    def __init__(
+        self,
+        project: ProjectEntry,
+        session: SessionEntry,
+    ) -> None:
+        super().__init__()
+        self._project = project
+        self._session = session
+        self._rows: list[DetailRow] = []
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=False)
+        yield Label("", id="detail_header")
+        table: DataTable[str] = DataTable(id="detail_table", zebra_stripes=True)
+        table.cursor_type = "row"
+        yield table
+        yield Footer()
+
+    def on_mount(self) -> None:
+        from ..parse import (
+            build_agent_tree,
+            find_subagent_transcripts,
+            parse_transcript,
+        )
+
+        path = str(self._session.transcript_path)
+        parsed = parse_transcript(path)
+        sub_infos = find_subagent_transcripts(path, 0)
+        tree = build_agent_tree(path, parsed, sub_infos)
+        self._rows = build_detail_rows(parsed, tree)
+
+        self.sub_title = self._build_sub_title()
+        self.query_one("#detail_header", Label).update(
+            self._build_header_text(parsed)
+        )
+
+        table = self.query_one(DataTable)
+        table.add_column("#", width=6)
+        table.add_column("when", width=8)
+        table.add_column("took", width=7)
+        table.add_column("cost", width=9)
+        table.add_column("own", width=9)
+        table.add_column("carry", width=9)
+        table.add_column("caused", width=7)
+        table.add_column("what", width=50)
+        table.add_column("ctx", width=8)
+        table.add_column("model", width=7)
+        table.add_column("in", width=7)
+        table.add_column("out", width=7)
+        table.add_column("cache_r", width=9)
+        table.add_column("cache_w", width=9)
+
+        for row in self._rows:
+            table.add_row(*_cells_for(row))
+
+        if table.row_count:
+            table.cursor_coordinate = Coordinate(0, 0)
+        table.focus()
+
+    def _build_sub_title(self) -> str:
+        parts = [
+            self._project.cwd_display,
+            short_datetime(self._session.started_ts) or self._session.session_id[:8],
+            self.USAGE_UNIT_NOTE,
+        ]
+        return "  —  ".join(parts)
+
+    def _build_header_text(self, parsed: dict) -> str:
+        """One-line header above the table with session-level totals."""
+        tbm = parsed.get("tokens_by_model") or {}
+        total_seq = 0.0
+        if tbm:
+            total_seq = model_aware_cost_breakdown(tbm)["total"]
+        parts = [
+            f"{parsed.get('turn_count', 0)} turns",
+            f"{short_tokens(round(total_seq))} cost",
+            f"peak ctx {short_tokens(parsed.get('peak_context_tokens', 0))}",
+            f"model {tiny_model(self._session.dominant_model) or '—'}",
+        ]
+        return "  ·  ".join(parts)
+
+    def on_data_table_row_selected(
+        self, event: DataTable.RowSelected
+    ) -> None:
+        # Turn detail modal and subagent drill-in land in future
+        # commits. No-op for now.
         pass
 
     def action_back(self) -> None:
@@ -346,3 +484,36 @@ class SessionScreen(Screen):
 
     def action_help(self) -> None:
         pass
+
+
+def _cells_for(row: DetailRow):
+    """Turn a :class:`DetailRow` into styled cells for DataTable.
+
+    Subagent footnote rows are rendered dimmed so they read as
+    sub-items of the turn they attach to, not as independent
+    entries. Non-turn rows also get the dim treatment — they're
+    timeline annotations, not primary content. Turn rows stay at
+    default style.
+    """
+    from rich.text import Text
+
+    cells_raw = [
+        row.num,
+        row.when,
+        row.took,
+        row.cost,
+        row.own,
+        row.carry,
+        row.caused,
+        row.what,
+        row.ctx,
+        row.model,
+        row.in_tokens,
+        row.out,
+        row.cache_r,
+        row.cache_w,
+    ]
+    if row.kind == "turn":
+        return cells_raw
+    style = "dim"
+    return [Text(c or "", style=style) for c in cells_raw]

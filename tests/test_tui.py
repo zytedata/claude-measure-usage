@@ -250,6 +250,99 @@ class TestDominantModel:
         assert discovery._dominant_model({}) == ""
 
 
+# ---------------------------------------------------------------------------
+# detail_rows
+# ---------------------------------------------------------------------------
+
+from claude_usage_tui.parse import (  # noqa: E402
+    parse_transcript,
+    find_subagent_transcripts,
+    build_agent_tree,
+)
+from claude_usage_tui.tui import detail_rows  # noqa: E402
+
+
+class TestBuildDetailRows:
+    def test_empty_transcript(self):
+        assert detail_rows.build_detail_rows({"rows": []}, []) == []
+
+    def test_basic_session(self):
+        parsed = parse_transcript(str(FIXTURES / "basic_session.jsonl"))
+        rows = detail_rows.build_detail_rows(parsed, [])
+        kinds = {r.kind for r in rows}
+        assert "turn" in kinds
+        # Each turn row carries a non-empty cost cell
+        turns = [r for r in rows if r.kind == "turn"]
+        assert all(r.cost for r in turns)
+        assert all(r.num for r in turns)
+
+    def test_subagent_footnotes_appear_after_parent(self):
+        path = str(FIXTURES / "with_subagents.jsonl")
+        parsed = parse_transcript(path)
+        sub_infos = find_subagent_transcripts(path, 0)
+        tree = build_agent_tree(path, parsed, sub_infos)
+        assert tree, "fixture must have subagents"
+
+        rows = detail_rows.build_detail_rows(parsed, tree)
+        kinds = [r.kind for r in rows]
+        # Every subagent row must be preceded by a turn row
+        for i, k in enumerate(kinds):
+            if k == "subagent":
+                assert any(
+                    kinds[j] == "turn" for j in range(i - 1, -1, -1)
+                ), f"subagent at row {i} has no preceding turn"
+
+    def test_parent_turn_cost_rolls_up_subagent_subtree(self):
+        # When a turn spawns subagents, the parent's cost/own
+        # numbers must include the subtree rollup — documented
+        # in the design doc and critical for sort correctness.
+        path = str(FIXTURES / "with_subagents.jsonl")
+        parsed = parse_transcript(path)
+        sub_infos = find_subagent_transcripts(path, 0)
+        tree = build_agent_tree(path, parsed, sub_infos)
+        rows = detail_rows.build_detail_rows(parsed, tree)
+        # Find a turn row that has a subagent footnote right after
+        parent_turn = None
+        sub_rows: list = []
+        for i, r in enumerate(rows):
+            if r.kind == "turn" and i + 1 < len(rows) and rows[i + 1].kind == "subagent":
+                parent_turn = r
+                for j in range(i + 1, len(rows)):
+                    if rows[j].kind != "subagent":
+                        break
+                    sub_rows.append(rows[j])
+                break
+        assert parent_turn is not None and sub_rows
+        # Parent's cost should be at least as big as the sum of its
+        # subagent subtree costs. (Exact equality isn't guaranteed
+        # because parent also has its own self-cost, but strict
+        # inequality would indicate a rollup bug.)
+        import re
+        def to_num(s):
+            m = re.match(r"([\d.]+)([KM]?)", s or "")
+            if not m:
+                return 0
+            val = float(m.group(1))
+            unit = m.group(2)
+            return val * {"": 1, "K": 1000, "M": 1_000_000}[unit]
+
+        parent_cost = to_num(parent_turn.cost)
+        sub_sum = sum(to_num(r.cost) for r in sub_rows)
+        assert parent_cost >= sub_sum * 0.95, (
+            f"parent cost {parent_cost} should include subagent rollup "
+            f"{sub_sum}, but doesn't"
+        )
+
+    def test_nonturn_rows_have_blank_cost(self):
+        parsed = parse_transcript(str(FIXTURES / "basic_session.jsonl"))
+        rows = detail_rows.build_detail_rows(parsed, [])
+        for r in rows:
+            if r.kind == "nonturn":
+                assert r.cost == ""
+                assert r.own == ""
+                assert r.what
+
+
 class TestProjectForCwd:
     def test_matches_existing_dir(self, tmp_path):
         root = tmp_path / "projects"
@@ -449,6 +542,56 @@ class TestProjectScreenPilot:
                     assert table.row_count == 1
                     assert "skipped" in app.screen.sub_title
                     await pilot.press("q")
+
+        asyncio.run(run())
+
+    def test_drill_to_session_detail_and_back(self, tmp_path, monkeypatch):
+        """Navigation Project → Session → Detail → back stack pops.
+
+        Exercises the full three-screen nav stack with a real
+        fixture, asserts each screen is the expected class, and
+        verifies Esc pops back cleanly to the parent at each level.
+        """
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import (
+            ProjectScreen,
+            SessionScreen,
+            SessionDetailScreen,
+        )
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-fake"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(FIXTURES / "basic_session.jsonl", proj_dir / "session.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, ProjectScreen)
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionScreen)
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionDetailScreen)
+                table = app.screen.query_one(DataTable)
+                # At least one row populated from the fixture
+                assert table.row_count > 0
+                # Pop back stack
+                await pilot.press("escape")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionScreen)
+                await pilot.press("escape")
+                await pilot.pause()
+                assert isinstance(app.screen, ProjectScreen)
+                await pilot.press("q")
 
         asyncio.run(run())
 
