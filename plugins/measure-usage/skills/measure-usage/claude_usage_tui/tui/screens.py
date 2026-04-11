@@ -75,7 +75,7 @@ class ProjectScreen(Screen):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        Binding("?", "help", "Help"),
+        Binding("question_mark", "help", "Help"),
     ]
 
     def __init__(self) -> None:
@@ -128,8 +128,17 @@ class ProjectScreen(Screen):
         self.app.exit()
 
     def action_help(self) -> None:
-        # Placeholder until the help overlay lands.
-        pass
+        self.app.push_screen(
+            HelpModal(
+                title="claude-usage-tui  —  Project picker",
+                bindings=list(self.BINDINGS),
+                intro=(
+                    "Browse Claude Code projects under "
+                    "~/.claude/projects. Enter drills into a "
+                    "project's session list.\n"
+                ),
+            )
+        )
 
 
 class SessionScreen(Screen):
@@ -154,7 +163,7 @@ class SessionScreen(Screen):
         Binding("i", "open_summary", "Summary"),
         Binding("escape", "back", "Back"),
         Binding("q", "quit", "Quit"),
-        Binding("?", "help", "Help"),
+        Binding("question_mark", "help", "Help"),
     ]
 
     DEFAULT_CSS = """
@@ -444,7 +453,18 @@ class SessionScreen(Screen):
         self.app.exit()
 
     def action_help(self) -> None:
-        pass
+        self.app.push_screen(
+            HelpModal(
+                title="claude-usage-tui  —  Session picker",
+                bindings=list(self.BINDINGS),
+                intro=(
+                    "Sessions in the selected project, most "
+                    "recent first. Enter drills into the full "
+                    "turn table; i previews the summary "
+                    "without drilling.\n"
+                ),
+            )
+        )
 
 
 class SessionDetailScreen(Screen):
@@ -471,7 +491,7 @@ class SessionDetailScreen(Screen):
         Binding("r", "reload", "Reload"),
         Binding("escape", "back", "Back"),
         Binding("q", "quit", "Quit"),
-        Binding("?", "help", "Help"),
+        Binding("question_mark", "help", "Help"),
     ]
 
     DEFAULT_CSS = """
@@ -829,7 +849,20 @@ class SessionDetailScreen(Screen):
         self.app.exit()
 
     def action_help(self) -> None:
-        pass
+        self.app.push_screen(
+            HelpModal(
+                title="claude-usage-tui  —  Session detail",
+                bindings=list(self.BINDINGS),
+                intro=(
+                    "Per-turn timeline for one session. Enter "
+                    "on a turn row opens the detail modal; on "
+                    "a subagent footnote row drills into its "
+                    "own detail screen. s cycles sort, / "
+                    "filters, i shows the session summary, r "
+                    "reloads from disk.\n"
+                ),
+            )
+        )
 
 
 def _dominant_model(tokens_by_model: dict) -> str:
@@ -1086,6 +1119,130 @@ class TurnDetailModal(ModalScreen):
 
 def t_or_dash(value) -> str:
     return str(value) if value else "—"
+
+
+class HelpModal(ModalScreen):
+    """Keybinding reference overlay.
+
+    Renders whatever bindings the caller passes in — each
+    screen's ``action_help`` hands its own :data:`BINDINGS` list
+    through, so the help always matches the current screen. The
+    same class serves every screen; no per-screen subclass.
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("enter", "close", "Close"),
+        Binding("q", "close", "Close"),
+    ]
+
+    DEFAULT_CSS = """
+    HelpModal {
+        align: center middle;
+    }
+    HelpModal > Vertical {
+        width: 80%;
+        max-width: 90;
+        height: auto;
+        max-height: 85%;
+        border: round $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    HelpModal #modal_header {
+        height: auto;
+        color: $accent;
+        text-style: bold;
+    }
+    HelpModal #modal_body {
+        height: auto;
+        padding-top: 1;
+    }
+    HelpModal #modal_body Static {
+        height: auto;
+    }
+    HelpModal #modal_footer {
+        height: 1;
+        color: $text-muted;
+        padding-top: 1;
+    }
+    """
+
+    # Keys whose internal binding name differs from what the
+    # user actually presses. Extend as new bindings appear.
+    _KEY_DISPLAY = {
+        "question_mark": "?",
+        "slash": "/",
+        "escape": "Esc",
+        "enter": "↵",
+        "left": "←",
+        "right": "→",
+        "up": "↑",
+        "down": "↓",
+        "pageup": "PgUp",
+        "pagedown": "PgDn",
+        "home": "Home",
+        "end": "End",
+    }
+
+    def __init__(
+        self,
+        title: str,
+        bindings: list[Binding],
+        intro: str = "",
+    ) -> None:
+        super().__init__()
+        self._title = title
+        # NOTE: cannot be named ``self._bindings`` — Textual's
+        # DOMNode.__init__ already owns that attribute (it's the
+        # instance-level BindingsMap) and overwriting it with a
+        # plain list blows up the binding chain during key
+        # dispatch with "AttributeError: 'list' object has no
+        # attribute 'key_to_bindings'".
+        self._display_bindings = bindings
+        self._intro = intro
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(self._title, id="modal_header")
+            with VerticalScroll(id="modal_body"):
+                if self._intro:
+                    yield Static(self._intro)
+                yield Static(self._render_keys())
+                yield Static(self._NAVIGATION_HINT)
+            yield Static("esc / ↵ close", id="modal_footer")
+
+    _NAVIGATION_HINT = (
+        "\nTable navigation:\n"
+        "  ↑ / ↓         Move cursor one row\n"
+        "  PgUp / PgDn   Move cursor one page\n"
+        "  Home / End    Scroll to start / end\n"
+        "  ← / →         Horizontal scroll on narrow terminals"
+    )
+
+    def _render_keys(self) -> str:
+        """Format the binding list as an aligned two-column table.
+
+        Skips bindings with ``show=False`` (they're
+        intentionally hidden — e.g. the filter Input's private
+        ``escape = cancel_filter``) and bindings without a
+        description.
+        """
+        visible = [
+            b for b in self._display_bindings
+            if b.show and b.description
+        ]
+        if not visible:
+            return "No keybindings."
+        keys = [self._KEY_DISPLAY.get(b.key, b.key) for b in visible]
+        width = max(len(k) for k in keys)
+        lines = ["Keys:"]
+        for key_str, b in zip(keys, visible):
+            lines.append(f"  {key_str:<{width}}   {b.description}")
+        return "\n".join(lines)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
 
 
 class SummaryModal(ModalScreen):

@@ -1349,6 +1349,83 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
+    def test_question_mark_opens_help_modal_on_each_screen(
+        self, tmp_path, monkeypatch
+    ):
+        """Pressing ``?`` on every screen opens the HelpModal
+        with that screen's BINDINGS. Esc closes it cleanly back
+        to the originating screen."""
+        import asyncio
+        import shutil
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import (
+            HelpModal,
+            ProjectScreen,
+            SessionDetailScreen,
+            SessionScreen,
+        )
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-help"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(FIXTURES / "basic_session.jsonl", proj_dir / "s.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test(size=(160, 50)) as pilot:
+                await pilot.pause()
+
+                # ProjectScreen — help is pretty minimal (q, ?).
+                project_screen = app.screen
+                assert isinstance(project_screen, ProjectScreen)
+                await pilot.press("question_mark")
+                await pilot.pause()
+                assert isinstance(app.screen, HelpModal)
+                keys_text = app.screen._render_keys()
+                assert "Quit" in keys_text
+                assert "Help" in keys_text
+                await pilot.press("escape")
+                await pilot.pause()
+                assert app.screen is project_screen
+
+                # SessionScreen — should now include i (Summary)
+                # and the Back binding.
+                await pilot.press("enter")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                session_screen = app.screen
+                assert isinstance(session_screen, SessionScreen)
+                await pilot.press("question_mark")
+                await pilot.pause()
+                assert isinstance(app.screen, HelpModal)
+                keys_text = app.screen._render_keys()
+                assert "Summary" in keys_text
+                assert "Back" in keys_text
+                await pilot.press("escape")
+                await pilot.pause()
+                assert app.screen is session_screen
+
+                # SessionDetailScreen — full set including Sort,
+                # Filter, Reload.
+                await pilot.press("enter")
+                await pilot.pause()
+                detail = app.screen
+                assert isinstance(detail, SessionDetailScreen)
+                await pilot.press("question_mark")
+                await pilot.pause()
+                assert isinstance(app.screen, HelpModal)
+                keys_text = app.screen._render_keys()
+                for needed in ("Sort", "Filter", "Reload", "Summary", "Back"):
+                    assert needed in keys_text, f"{needed!r} missing from help"
+                await pilot.press("escape")
+                await pilot.pause()
+                assert app.screen is detail
+                await pilot.press("q")
+
+        asyncio.run(run())
+
     def test_i_on_session_picker_opens_summary_modal(
         self, tmp_path, monkeypatch
     ):
