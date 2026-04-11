@@ -726,10 +726,19 @@ class TurnDetailModal(ModalScreen):
     re-parsed. Dismisses with ``None`` on plain close, or with
     ``{"drill": <child_node>}`` when the user picks a subagent
     to drill into.
+
+    ``enter`` is also bound to close so a user who opened the
+    modal to read its content can dismiss it with the same key
+    they used to open it. The OptionList that holds spawned
+    subagents carries its own priority ``enter`` binding for
+    row selection, so when it has focus that wins and Enter
+    drills instead — consistent with every other list widget
+    in the app.
     """
 
     BINDINGS = [
         Binding("escape", "close", "Close"),
+        Binding("enter", "close", "Close"),
         Binding("q", "close", "Close"),
     ]
 
@@ -809,6 +818,20 @@ class TurnDetailModal(ModalScreen):
                         id="sub_list",
                     )
             yield Static(self._footer_hint(), id="modal_footer")
+
+    def on_mount(self) -> None:
+        # When the turn spawned subagents, focus the OptionList so
+        # its priority enter binding wins over the screen-level
+        # enter = close — Enter drills into the subagent instead
+        # of dismissing the modal. For turns without children
+        # there's nothing to focus and Enter falls through to
+        # close, which is what a user expects from an
+        # informational popup.
+        if self._children:
+            try:
+                self.query_one("#sub_list", OptionList).focus()
+            except Exception:
+                pass
 
     def _header_text(self) -> str:
         t = self._turn
@@ -931,6 +954,7 @@ class NonturnDetailModal(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "close", "Close"),
+        Binding("enter", "close", "Close"),
         Binding("q", "close", "Close"),
     ]
 
