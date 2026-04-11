@@ -398,6 +398,49 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
+    def test_session_loader_worker_populates_table(self, tmp_path, monkeypatch):
+        """Multiple fixture sessions land via the background worker.
+
+        Verifies that (a) the progress bar appears during load,
+        (b) the worker's call_from_thread writes actually reach
+        the DataTable, and (c) the progress container is hidden
+        once loading finishes.
+        """
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable, ProgressBar
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import SessionScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-p"
+        proj_dir.mkdir(parents=True)
+        for i, fixture in enumerate(
+            ["basic_session.jsonl", "multi_tool.jsonl", "with_web_search.jsonl"]
+        ):
+            shutil.copy(FIXTURES / fixture, proj_dir / f"s{i}.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionScreen)
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                table = app.screen.query_one(DataTable)
+                assert table.row_count == 3
+                loading = app.screen.query_one("#loading")
+                assert "-hidden" in loading.classes
+                # Progress bar filled
+                bar = app.screen.query_one("#loading_bar", ProgressBar)
+                assert bar.percentage == 1.0
+                await pilot.press("q")
+
+        asyncio.run(run())
+
     def test_open_pushes_session_screen(self, tmp_path, monkeypatch):
         # Full end-to-end nav test. Uses a real fixture transcript
         # so SessionScreen has something to render — discover_sessions
@@ -423,6 +466,8 @@ class TestProjectScreenPilot:
                 await pilot.press("enter")
                 await pilot.pause()
                 assert isinstance(app.screen, SessionScreen)
+                await app.workers.wait_for_complete()
+                await pilot.pause()
                 session_table = app.screen.query_one(DataTable)
                 assert session_table.row_count == 1
                 # Esc pops back to the project picker.

@@ -130,6 +130,19 @@ class SessionEntry:
     first_user_message: str | None
 
 
+def list_session_paths(project_dir: Path) -> list[Path]:
+    """Return ``*.jsonl`` transcript paths in a project directory.
+
+    Cheap filesystem enumeration — no parsing. Lets the session
+    screen mount immediately and kick off transcript parsing as a
+    background worker so the UI stays responsive on large projects.
+    """
+    return [
+        p for p in sorted(project_dir.glob("*.jsonl"))
+        if not p.name.endswith(".meta.json")
+    ]
+
+
 def discover_sessions(project_dir: Path) -> list[SessionEntry]:
     """Return every session transcript inside ``project_dir``.
 
@@ -144,18 +157,23 @@ def discover_sessions(project_dir: Path) -> list[SessionEntry]:
     first); sessions without a parsable start timestamp fall to
     the bottom at natural filesystem order.
     """
-    entries: list[SessionEntry] = []
-    for path in sorted(project_dir.glob("*.jsonl")):
-        if path.name.endswith(".meta.json"):
-            continue
-        entries.append(_session_entry(path))
-    entries.sort(
-        key=lambda e: (e.started_ts is None, -(e.started_ts or 0.0)),
-    )
+    entries = [load_session(p) for p in list_session_paths(project_dir)]
+    sort_sessions(entries)
     return entries
 
 
-def _session_entry(path: Path) -> SessionEntry:
+def sort_sessions(entries: list[SessionEntry]) -> None:
+    """Sort session entries in place by ``started_ts`` desc.
+
+    Sessions without a parsable timestamp fall to the bottom in
+    natural filesystem order.
+    """
+    entries.sort(
+        key=lambda e: (e.started_ts is None, -(e.started_ts or 0.0)),
+    )
+
+
+def load_session(path: Path) -> SessionEntry:
     parsed = parse_transcript(str(path))
     tokens_by_model = parsed.get("tokens_by_model") or {}
     if tokens_by_model:

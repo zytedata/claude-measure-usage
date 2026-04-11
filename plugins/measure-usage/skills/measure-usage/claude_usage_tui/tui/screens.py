@@ -11,16 +11,19 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.coordinate import Coordinate
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Header
+from textual.widgets import DataTable, Footer, Header, Label, ProgressBar
 
 from .discovery import (
     ProjectEntry,
     SessionEntry,
     discover_projects,
-    discover_sessions,
+    list_session_paths,
+    load_session,
     project_for_cwd,
+    sort_sessions,
 )
 from .format import rel_time, short_datetime, short_tokens, tiny_model
 
@@ -101,23 +104,40 @@ class ProjectScreen(Screen):
 class SessionScreen(Screen):
     """Session picker: lists every transcript in a project.
 
-    Parses each ``.jsonl`` on mount via
-    :func:`claude_usage_tui.tui.discovery.discover_sessions`. Real
-    measurements show ~4ms per session, so a 200-session project
-    still mounts in well under a second — no background worker
-    needed for v1.
+    Parses each ``.jsonl`` in a background thread worker and
+    advances a :class:`ProgressBar` per file. On projects with many
+    or large sessions the parse can run into seconds, and mounting
+    the screen with a blocking parse would look like the app had
+    frozen. The worker approach lets the screen paint immediately
+    with its progress indicator and keeps keyboard input responsive
+    (``Esc`` to go back cancels the worker and pops the screen).
     """
 
-    # Both Esc and ← bind to back-one-level per docs/tui-ux.md. The
-    # DataTable row cursor mode ignores ← (no horizontal cursor),
-    # so the browser-style "back" shortcut has no conflict. Only
-    # one of the two is shown in the footer to avoid noise.
     BINDINGS = [
         Binding("escape", "back", "Back"),
         Binding("left", "back", "Back", show=False),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
     ]
+
+    DEFAULT_CSS = """
+    SessionScreen #loading {
+        height: 1;
+        padding: 0 2;
+        background: $surface;
+    }
+    SessionScreen #loading Label {
+        width: auto;
+        margin-right: 1;
+        color: $text-muted;
+    }
+    SessionScreen #loading ProgressBar {
+        width: 1fr;
+    }
+    SessionScreen #loading.-hidden {
+        display: none;
+    }
+    """
 
     def __init__(self, project: ProjectEntry) -> None:
         super().__init__()
@@ -126,15 +146,18 @@ class SessionScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
+        with Horizontal(id="loading"):
+            yield Label("Loading sessions…", id="loading_label")
+            yield ProgressBar(id="loading_bar", show_eta=False)
         table: DataTable[str] = DataTable(id="sessions", zebra_stripes=True)
         table.cursor_type = "row"
         yield table
         yield Footer()
 
     def on_mount(self) -> None:
-        self._entries = discover_sessions(self._project.project_dir)
+        paths = list_session_paths(self._project.project_dir)
         self.sub_title = (
-            f"{self._project.cwd_display}  —  {len(self._entries)} sessions"
+            f"{self._project.cwd_display}  —  loading {len(paths)} sessions…"
         )
         table = self.query_one(DataTable)
         table.add_column("Started", width=18)
@@ -143,6 +166,56 @@ class SessionScreen(Screen):
         table.add_column("Peak ctx", width=10)
         table.add_column("Model", width=8)
         table.add_column("Summary")
+
+        loading = self.query_one("#loading")
+        if not paths:
+            loading.add_class("-hidden")
+            self._finish_loading()
+            return
+        progress = self.query_one("#loading_bar", ProgressBar)
+        progress.update(total=len(paths), progress=0)
+        # exclusive=True cancels any prior loader on this screen so
+        # pressing r to reload doesn't leave two parsers racing.
+        self.run_worker(
+            lambda: self._parse_all(paths),
+            thread=True,
+            exclusive=True,
+            name="session-loader",
+        )
+
+    def on_unmount(self) -> None:
+        # Kill any in-flight parser when the screen is popped so it
+        # can't touch unmounted widgets via call_from_thread.
+        self.workers.cancel_all()
+
+    def _parse_all(self, paths: list[Path]) -> None:
+        """Worker body: parses each session and streams progress.
+
+        Runs on a background thread. All UI touches go through
+        ``call_from_thread`` so the main event loop stays
+        single-threaded.
+        """
+        for path in paths:
+            if not self.is_mounted:
+                return
+            entry = load_session(path)
+            self.app.call_from_thread(self._on_session_parsed, entry)
+        self.app.call_from_thread(self._finish_loading)
+
+    def _on_session_parsed(self, entry: SessionEntry) -> None:
+        self._entries.append(entry)
+        try:
+            progress = self.query_one("#loading_bar", ProgressBar)
+        except Exception:
+            return
+        progress.advance(1)
+
+    def _finish_loading(self) -> None:
+        sort_sessions(self._entries)
+        self.sub_title = (
+            f"{self._project.cwd_display}  —  {len(self._entries)} sessions"
+        )
+        table = self.query_one(DataTable)
         for entry in self._entries:
             table.add_row(
                 short_datetime(entry.started_ts) or "—",
@@ -153,8 +226,13 @@ class SessionScreen(Screen):
                 (entry.first_user_message or "").replace("\n", " ")[:120],
                 key=str(entry.transcript_path),
             )
-        table.cursor_coordinate = Coordinate(0, 0)
+        if table.row_count:
+            table.cursor_coordinate = Coordinate(0, 0)
         table.focus()
+        try:
+            self.query_one("#loading").add_class("-hidden")
+        except Exception:
+            pass
 
     def on_data_table_row_selected(
         self, event: DataTable.RowSelected
