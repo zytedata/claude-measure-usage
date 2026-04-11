@@ -214,45 +214,130 @@ class SessionScreen(Screen):
         Runs on a background thread. All UI touches go through
         ``call_from_thread`` so the main event loop stays
         single-threaded.
+
+        Defensive structure:
+
+        - Individual ``load_session`` failures are caught per-file
+          so one malformed transcript can't abort the batch. The
+          skipped path is recorded and surfaced in the loading
+          label once everything else has loaded.
+        - ``_finish_loading`` is dispatched in a ``finally`` so
+          even an unexpected exception in the batch loop still
+          leaves the UI in a consistent state — the table
+          populates with whatever was parsed successfully, the
+          loading indicator hides, and an error banner appears
+          if anything went wrong.
+        - ``call_from_thread`` itself is wrapped because the
+          worker can race with screen teardown; dispatching into
+          an unmounted screen raises, which would otherwise kill
+          the worker silently.
         """
-        for path in paths:
-            if not self.is_mounted:
-                return
-            entry = load_session(path)
-            self.app.call_from_thread(self._on_session_parsed, entry)
-        self.app.call_from_thread(self._finish_loading)
+        skipped: list[tuple[Path, Exception]] = []
+        fatal: Exception | None = None
+        try:
+            for path in paths:
+                try:
+                    entry = load_session(path)
+                except Exception as exc:
+                    skipped.append((path, exc))
+                    self._safe_call(self._on_session_skipped)
+                    continue
+                self._safe_call(self._on_session_parsed, entry)
+        except Exception as exc:
+            fatal = exc
+        finally:
+            self._safe_call(self._finish_loading, skipped, fatal)
+
+    def _safe_call(self, fn, *args) -> None:
+        """Dispatch ``fn`` to the app thread, swallowing teardown races."""
+        try:
+            self.app.call_from_thread(fn, *args)
+        except Exception:
+            pass
 
     def _on_session_parsed(self, entry: SessionEntry) -> None:
         self._entries.append(entry)
+        self._advance_progress()
+
+    def _on_session_skipped(self) -> None:
+        self._advance_progress()
+
+    def _advance_progress(self) -> None:
         try:
             progress = self.query_one("#loading_bar", ProgressBar)
         except Exception:
             return
-        progress.advance(1)
-
-    def _finish_loading(self) -> None:
-        sort_sessions(self._entries)
-        self.sub_title = (
-            f"{self._project.cwd_display}  —  {len(self._entries)} sessions"
-        )
-        table = self.query_one(DataTable)
-        for entry in self._entries:
-            table.add_row(
-                short_datetime(entry.started_ts) or "—",
-                str(entry.turn_count),
-                short_tokens(entry.total_seq_tokens),
-                short_tokens(entry.peak_context_tokens),
-                tiny_model(entry.dominant_model),
-                (entry.first_user_message or "").replace("\n", " ")[:120],
-                key=str(entry.transcript_path),
-            )
-        if table.row_count:
-            table.cursor_coordinate = Coordinate(0, 0)
-        table.focus()
         try:
-            self.query_one("#loading").add_class("-hidden")
+            progress.advance(1)
         except Exception:
             pass
+
+    def _finish_loading(
+        self,
+        skipped: list[tuple[Path, Exception]] | None = None,
+        fatal: Exception | None = None,
+    ) -> None:
+        sort_sessions(self._entries)
+        try:
+            self.sub_title = self._build_sub_title(skipped or [], fatal)
+            table = self.query_one(DataTable)
+            for entry in self._entries:
+                table.add_row(
+                    short_datetime(entry.started_ts) or "—",
+                    str(entry.turn_count),
+                    short_tokens(entry.total_seq_tokens),
+                    short_tokens(entry.peak_context_tokens),
+                    tiny_model(entry.dominant_model),
+                    (entry.first_user_message or "").replace("\n", " ")[:120],
+                    key=str(entry.transcript_path),
+                )
+            if table.row_count:
+                table.cursor_coordinate = Coordinate(0, 0)
+            table.focus()
+        except Exception:
+            # Screen was popped mid-finish, or something else went
+            # sideways. Nothing more to do — the user has already
+            # navigated away.
+            return
+        self._update_loading_indicator(skipped or [], fatal)
+
+    def _build_sub_title(
+        self,
+        skipped: list[tuple[Path, Exception]],
+        fatal: Exception | None,
+    ) -> str:
+        parts = [
+            self._project.cwd_display,
+            f"{len(self._entries)} sessions",
+        ]
+        if skipped:
+            parts.append(f"{len(skipped)} skipped")
+        if fatal is not None:
+            parts.append(f"load error: {type(fatal).__name__}")
+        return "  —  ".join(parts)
+
+    def _update_loading_indicator(
+        self,
+        skipped: list[tuple[Path, Exception]],
+        fatal: Exception | None,
+    ) -> None:
+        try:
+            loading = self.query_one("#loading")
+        except Exception:
+            return
+        if fatal is None and not skipped:
+            loading.add_class("-hidden")
+            return
+        try:
+            label = self.query_one("#loading_label", Label)
+        except Exception:
+            return
+        msg_parts: list[str] = []
+        if fatal is not None:
+            msg_parts.append(f"error: {type(fatal).__name__}: {fatal}")
+        if skipped:
+            msg_parts.append(f"skipped {len(skipped)} unreadable")
+        label.update(" · ".join(msg_parts))
 
     def on_data_table_row_selected(
         self, event: DataTable.RowSelected

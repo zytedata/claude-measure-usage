@@ -398,6 +398,60 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
+    def test_loader_survives_unreadable_transcript(
+        self, tmp_path, monkeypatch
+    ):
+        """An exception while loading one session must not abort the batch.
+
+        Injects a transcript path that load_session will choke on
+        and verifies that (a) other sessions in the project still
+        parse and populate the table, (b) the loader reaches its
+        finally block and flips the loading container out of its
+        initial state, and (c) the skipped-count is surfaced.
+        """
+        import asyncio
+        import shutil
+        from unittest.mock import patch
+        from textual.widgets import DataTable
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui import discovery
+        from claude_usage_tui.tui.screens import SessionScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-p"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(FIXTURES / "basic_session.jsonl", proj_dir / "ok.jsonl")
+        (proj_dir / "bad.jsonl").write_text("this will blow up")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        real_load = discovery.load_session
+
+        def flaky(path):
+            if path.name == "bad.jsonl":
+                raise RuntimeError("boom")
+            return real_load(path)
+
+        async def run():
+            with patch.object(discovery, "load_session", flaky), \
+                 patch(
+                     "claude_usage_tui.tui.screens.load_session", flaky
+                 ):
+                app = ClaudeUsageTuiApp()
+                async with app.run_test() as pilot:
+                    await pilot.pause()
+                    await pilot.press("enter")
+                    await pilot.pause()
+                    assert isinstance(app.screen, SessionScreen)
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    table = app.screen.query_one(DataTable)
+                    # The good session loaded; the bad one was skipped.
+                    assert table.row_count == 1
+                    assert "skipped" in app.screen.sub_title
+                    await pilot.press("q")
+
+        asyncio.run(run())
+
     def test_session_loader_worker_populates_table(self, tmp_path, monkeypatch):
         """Multiple fixture sessions land via the background worker.
 
