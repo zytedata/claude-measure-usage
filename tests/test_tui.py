@@ -1349,6 +1349,53 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
+    def test_i_on_session_picker_opens_summary_modal(
+        self, tmp_path, monkeypatch
+    ):
+        """Pressing ``i`` on the session picker opens the summary
+        modal for the highlighted session without drilling into
+        the detail screen."""
+        import asyncio
+        import shutil
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import (
+            SessionScreen,
+            SummaryModal,
+        )
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-isumm"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(FIXTURES / "basic_session.jsonl", proj_dir / "s.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test(size=(160, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                assert isinstance(app.screen, SessionScreen)
+                session_screen = app.screen
+                await pilot.press("i")
+                await pilot.pause()
+                assert isinstance(app.screen, SummaryModal)
+                summary_text = app.screen._summary_text()
+                # Basic liveness check: summary mentions a
+                # Duration line — that's what format_metrics
+                # always puts on the first line.
+                assert summary_text.startswith("Duration:")
+                # Dismiss — should land back on the session
+                # picker, not on a detail screen.
+                await pilot.press("escape")
+                await pilot.pause()
+                assert app.screen is session_screen
+                await pilot.press("q")
+
+        asyncio.run(run())
+
     def test_subagent_row_enter_drills_into_new_detail_screen(
         self, tmp_path, monkeypatch
     ):

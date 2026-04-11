@@ -151,6 +151,7 @@ class SessionScreen(Screen):
     # different meanings depending on terminal width — worse than
     # just requiring ``Esc`` for back.
     BINDINGS = [
+        Binding("i", "open_summary", "Summary"),
         Binding("escape", "back", "Back"),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
@@ -379,6 +380,23 @@ class SessionScreen(Screen):
         simple and avoids a second progress bar on a screen that
         will be visible for seconds anyway.
         """
+        parsed, tree = self._parse_for(entry)
+        self.app.push_screen(
+            SessionDetailScreen(
+                self._title_for(entry),
+                parsed,
+                tree,
+                transcript_path=entry.transcript_path,
+            )
+        )
+
+    def _parse_for(self, entry: SessionEntry) -> tuple[dict, list[dict]]:
+        """Parse the transcript and build the subagent tree.
+
+        Shared by ``_open_session`` (drill into detail) and
+        ``action_open_summary`` (overlay summary modal) so both
+        paths get identical data and nobody parses twice.
+        """
         from ..parse import (
             build_agent_tree,
             find_subagent_transcripts,
@@ -389,13 +407,33 @@ class SessionScreen(Screen):
         parsed = parse_transcript(path)
         sub_infos = find_subagent_transcripts(path, 0)
         tree = build_agent_tree(path, parsed, sub_infos)
-        title = "  —  ".join([
+        return parsed, tree
+
+    def _title_for(self, entry: SessionEntry) -> str:
+        return "  —  ".join([
             self._project.cwd_display,
             short_datetime(entry.started_ts) or entry.session_id[:8],
         ])
+
+    def action_open_summary(self) -> None:
+        """Show the summary modal for the currently highlighted session.
+
+        Same rendering as the SessionDetailScreen's ``i`` binding
+        (compute_metrics_from_parsed + format_metrics) but opens
+        straight from the picker — useful for triaging a long
+        session list without having to drill into each candidate.
+        """
+        table = self.query_one(DataTable)
+        idx = table.cursor_row
+        if idx is None or idx >= len(self._entries):
+            return
+        entry = self._entries[idx]
+        parsed, tree = self._parse_for(entry)
         self.app.push_screen(
-            SessionDetailScreen(
-                title, parsed, tree, transcript_path=entry.transcript_path,
+            SummaryModal(
+                title=self._title_for(entry),
+                parsed=parsed,
+                tree=tree,
             )
         )
 
