@@ -43,14 +43,14 @@ Per-turn drill-down (main session + one table per subagent):
 - **Tool calls** — count, estimated cost (invoke + carry), and wall time
 - **User messages** — number of user prompts
 - **Agent/skill tree** — hierarchical breakdown with per-agent cost and context
-- **Per-turn tables** (`turns`) — every assistant turn with raw token columns,
-  per-turn Seq, subagent rollup on spawning turns, and a short label showing
-  what happened that turn
+- **Per-turn tables** (`turns`) — every assistant turn with a cost
+  decomposition (`tokens = own + carry`), downstream `caused` projection,
+  wallclock timing, and a short label showing what happened that turn
 
 ## Example output
 
 ```
-Duration: 89m 2s
+Duration: 89m 3s
 Tokens: 5.6M (Sonnet input-equivalent)
   58%  Cache read: 3.2M
   34%  Cache write: 1.4M (5m) + 488.4K (1h)
@@ -61,16 +61,16 @@ Model turns: 523
 User messages: 46
 Tool calls (cost est.):
                     total  invoke   carry  count     wall
-  Bash               1.1M  751.2K  362.1K    336   15m 2s
-  Read             671.0K  275.0K  396.1K    160    46.1s
-  Write            230.9K  227.9K    3.0K     17     3.1s
-  Agent             98.7K   22.8K   75.9K     16  44m 35s
-  Grep              55.2K   17.6K   37.6K     35     0.8s
-  Skill             45.6K   30.4K   15.1K     28   48m 1s
-  Edit              25.1K   17.3K    7.8K     17     0.4s
-  Glob               2.5K    1.7K     728      6     0.3s
-  AskUserQuestion    1.9K     883    1.1K      1    54.0s
-  ToolSearch          456     133     322      1     0.0s
+  Bash               1.1M  751.2K  383.8K    336   15m 2s
+  Read             694.3K  275.0K  419.3K    160    46.1s
+  Write            231.0K  227.9K    3.2K     17     3.1s
+  Agent             99.7K   22.8K   77.0K     16  44m 35s
+  Grep              55.6K   17.6K   38.0K     35     0.8s
+  Skill             46.8K   30.4K   16.4K     28   48m 1s
+  Edit              25.2K   17.3K    7.9K     17     0.4s
+  Glob               2.5K    1.7K     800      6     0.3s
+  AskUserQuestion    2.0K     883    1.1K      1    54.0s
+  ToolSearch          458     133     325      1     0.0s
 Breakdown:
                                             tokens  turns  context
 Main session                               2374.2K    135   148.5K
@@ -97,51 +97,83 @@ Main session                               2374.2K    135   148.5K
 
 The `turns` command renders one row per assistant turn for the main session
 and one table per subagent, linked by short `↳id` anchors that are
-searchable in the output:
+searchable in the output. Columns decompose each turn's cost as
+`tokens = own + carry`, show the downstream `caused` projection, and
+bracket the raw transcript counts in a separate block on the right:
 
 ```
-Columns are raw tokens except Seq/sub = Sonnet-equivalent (cache_r×0.1,
-in×1, cache_w×1.25, out×5; opus×5/3, haiku×1/3). sub = descendant
-subagents rolled up onto the spawning turn.
+Tokens (and own/inherit/caused) are Sonnet input-equivalent, normalized across token type and model. in/out/cache_r/cache_w on the right are raw transcript counts.
 
-Main session  —  135 turns  —  Seq 2.4M  —  subtree 5.6M
- #     t+  model  in  out  cache_r  cache_w    ctx    Seq     sub  what
-──────────────────────────────────────────────────────────────────────────────────
- 8   1:45  opus    1   94    21.4K      424   21.8K   5.2K          Bash "ls -la .scrape/.work/vinted-p…"
- 9   1:49  opus    1    1    21.4K      733   22.1K   5.1K  141.8K  Page downloaded. Let me analyze it.  [↳a337]
-10   3:29  opus    1   33    22.1K      773   22.9K   5.6K          Read detail-1.rendered.json
-...
-17   5:57  opus    1   35    29.1K    1.7K   30.7K   8.6K  274.5K  Exploring the site to download more pages.  [↳a6ae]
-...
-20  10:54  opus    1    1    31.9K      352   32.2K   6.1K  750.3K  All 3 detail pages have both raw and rendered HTML. Launchi…  [6 subagents]
-21  12:55  opus    3    2    32.2K    3.7K   35.9K  13.1K          All 6 analyses complete. Let me compare the variants.
-22  13:02  opus    1  315    35.9K      294   36.2K   9.2K   24.0K  [Agent] "compare raw vs rendered"  [↳af29]
-──────────────────────────────────────────────────────────────────────────────────
+Main session  —  135 turns  —  Tokens 5.6M (2.4M own + 3.2M subagents)
 
-↳af29  "compare raw vs rendered"  —  parent turn 22  —  2 turns  —  Seq 24.0K
-#    t+  model  in  out  cache_r  cache_w    ctx    Seq  what
-─────────────────────────────────────────────────────────────────────────────────
-1  0:00  opus    3    2     7.4K    1.1K   8.5K   3.5K  Let me read all 6 JSON files.
-2  0:12  opus    1  419     8.5K    7.5K  15.9K  20.5K  Here is the comparison report, limited to the 18 schema fie…
-─────────────────────────────────────────────────────────────────────────────────
-         total   4  421    15.8K    8.6K         24.0K
+  #   when   took │ tokens  = own + carry │ caused  what                                                      ctx │ mdl    in   out cache_r cache_w
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+      0:00        │                       │         [user] I want to get products from https://www.vinted.com/    │
+      0:00        │                       │         [attachment:deferred_tools_delta] +21                         │
+  1   0:03        │  13.8K  11.9K    1.9K │  +125K  (startup) [Skill] "scrape"                         ·   16.9K │ opus    3    35   11.3K    5.6K
+  2   0:06     2s │  15.7K  13.8K    1.9K │  +140K  [Skill] "scrape-define"                            ·   17.7K │ opus    2    81   11.3K    6.3K
+  3   0:09    11s │   6.9K   3.9K    2.9K │   +38K  Let me set up the workspace first.                 ·   19.4K │ opus    2    45   17.7K    1.7K
+  4   0:21     8s │   4.7K   1.5K    3.2K │    +6K  Bash "mkdir -p .scrape/vinted-produ…"              ·   19.6K │ opus    1   115   19.4K     266
+  5   0:30     3s │   4.1K    787    3.3K │    +3K  ToolSearch "select:AskUserQuestion"                ·   19.8K │ opus    1    61   19.6K     133
+  6   0:35    58s │   7.6K   4.3K    3.3K │   +32K  AskUserQuestion                                    ·   21.1K │ opus    3   153   19.6K    1.5K
+      1:31        │                       │         [user] https://www.vinted.com/items/…                         │
+  7   1:35    17s │   6.5K   3.0K    3.5K │    +6K  Bash "uv run /Users/kmike/svn/scrap…"              ·   21.4K │ opus    3   284   21.1K     292
+...
+  9   1:52  1m40s │ 146.9K 143.4K    3.6K │   +15K  Page downloaded. Let me analyze it.  [↳a337]      ·   22.1K │ opus    1     1   21.4K     733
+...
+ 17   6:00  4m48s │ 283.1K 278.3K    4.8K │   +33K  Exploring the site to download more pages. [↳a6ae] ·   30.7K │ opus    1    35   29.1K    1.7K
+...
+ 20  10:57     2m │ 756.3K 751.0K    5.3K │    +7K  All 3 detail pages… [6 subagents]                  ·   32.2K │ opus    1     1   31.9K     352
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+              47m │   5.4M   3.6M    1.7M │                                                                       │ total 168 17.1K   10.5M  146.5K
+
+↳af29  "compare raw vs rendered"  —  parent turn 22  —  2 turns  —  Tokens 24.0K
+
+#  when  took │ tokens = own + carry │ caused  what                                                             ctx │ mdl   in out cache_r cache_w
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   0:00       │                      │         [user] Read all 6 analysis JSON files in /Users/kmike/svn/…         │
+1  0:03    2s │   3.5K  2.3K    1.2K │         (startup) Let me read all 6 JSON files.                       8.5K │ opus   3   2    7.4K    1.1K
+2  0:15    9s │  20.5K 19.1K    1.4K │         Here is the comparison report, limited to the 1…             15.9K │ opus   1 419    8.5K    7.5K
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+           12s │  24.0K 21.4K    2.6K │                                                                            │ total  4 421   15.8K    8.6K
 ```
 
 Column semantics:
 
-- `in / out / cache_r / cache_w / ctx` — raw transcript tokens. `ctx` is
-  the total input context for the turn.
-- `Seq` — Sonnet-equivalent tokens for the turn's own work.
-- `sub` — descendant subtree Seq for any subagents this turn spawned,
-  rolled up all the way through nested children. The column disappears
-  when nothing was spawned.
-- `what` — first text line the assistant produced that turn, or a
-  collapsed tool list (`Read foo.py, Bash "pytest"`, `[3× Agent] e.g. "…"`).
+- `#` — turn number (model-invocation count). Non-turn rows like user
+  prompts or attachments have no number and sit between turns.
+- `when` — elapsed time since the session started.
+- `took` — wallclock for this turn's own work plus the API round-trip
+  latency it triggered (time between the previous turn's tools
+  finishing and this turn starting).
+- `tokens = own + carry` — Sonnet-equivalent cost decomposition.
+  - `own`: what this turn *produced* — model output + tool results it
+    wrote to the cache + subagent rollup. This is the part a developer
+    can optimize by making the turn leaner.
+  - `carry`: what this turn *paid to read* inherited context
+    (`cache_r × 0.1 × model_scale`). Mostly determined by earlier
+    turns — optimize by trimming upstream bloat.
+- `caused` — projected downstream cost: what subsequent turns in the
+  same compaction epoch will collectively pay to re-read this turn's
+  `cache_w` contribution. Forward-attributed; not part of `tokens`.
+  Always rendered with a leading `+` to mark it as a projection.
+- `what` — first text line the assistant produced, or a collapsed tool
+  list (`Read foo.py, Bash "pytest"`, `[3× Agent] e.g. "codegen-analyze detail-1"`).
+  Turn rows get dot-leader padding so the eye can track across the row.
+- `ctx` — context window size at this turn (raw `input + cache_r + cache_w`).
+- `mdl`, `in`, `out`, `cache_r`, `cache_w` — raw transcript counts to
+  the right of the `│` separator. These are what the API reported,
+  without normalization.
+- `(startup)` label on the first turn of each section signals that its
+  `own` / `carry` / `caused` numbers include session bootstrap overhead
+  (system prompt, tool schemas, CLAUDE.md, initial skill loads) that
+  isn't purely developer-actionable.
 
-Each subagent table has a matching `↳id` header with its parent turn,
-its own Seq, and a `subtree` value when it spawned further children, so
-you can jump from the main table to the exact drill-down table for any
-spawning turn.
+Each section's header decomposes the total as
+`Tokens N (A own + B subagents)` when subagents contributed, or just
+`Tokens N` for a leaf. Subagent tables repeat the same column layout
+scoped to that subagent's own turns, with a `parent turn N` cross-reference
+back to the spawning row in the main table.
 
 ## How costs are calculated
 
@@ -187,12 +219,15 @@ the transcript by estimating token counts from text length (~4 chars per token):
   Output tokens are estimated from the tool call arguments, input tokens from
   the tool result content.
 - **carry** — ongoing cost of the result sitting in context for subsequent turns:
-  `input_tokens * 0.1 * model_scale * remaining_turns`. This assumes the result
-  stays in context as cached content for all subsequent assistant turns.
+  `input_tokens * 0.1 * model_scale * remaining_turns_in_epoch`. This assumes
+  the result stays in context as cached content for all subsequent assistant
+  turns until either the session ends or a `/compact` boundary replaces it
+  with a summary.
 
 Both are approximations. The actual cost depends on caching behavior, context
 window management, and prompt structure. Use them for relative comparisons
-(which tools are expensive?) rather than absolute numbers.
+(which tools are expensive?) rather than absolute numbers. The per-turn
+`caused` column uses the same flat-attribution formula at turn granularity.
 
 ### Agent tree
 

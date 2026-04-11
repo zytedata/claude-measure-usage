@@ -108,9 +108,10 @@ def _render_subagent_section(node):
 
 def _format_main_header(main_parsed, own_seq, subtree_seq):
     turn_count = main_parsed.get("turn_count", 0)
-    parts = [f"Main session  —  {turn_count} turns", f"Tokens {_fmt_k(round(own_seq))}"]
-    if subtree_seq > own_seq:
-        parts.append(f"subtree {_fmt_k(round(subtree_seq))}")
+    parts = [
+        f"Main session  —  {turn_count} turns",
+        _format_tokens_label(own_seq, subtree_seq),
+    ]
     return "  —  ".join(parts)
 
 
@@ -128,11 +129,29 @@ def _format_subagent_header(node, own_seq, subtree_seq):
     if parent is not None:
         right_parts.append(f"parent turn {parent}")
     right_parts.append(f"{turn_count} turns")
-    right_parts.append(f"Tokens {_fmt_k(round(own_seq))}")
-    if subtree_seq > own_seq:
-        right_parts.append(f"subtree {_fmt_k(round(subtree_seq))}")
+    right_parts.append(_format_tokens_label(own_seq, subtree_seq))
 
     return f"{left}  —  " + "  —  ".join(right_parts)
+
+
+def _format_tokens_label(own_seq, subtree_seq):
+    """Render a section's Tokens figure.
+
+    When the section spawned subagents, shows the total with an
+    own/subagents decomposition: ``Tokens 5.6M (2.4M own + 3.2M
+    subagents)``. For leaf sections (no descendants) shows just
+    the single number so the decomposition isn't offered when
+    there's nothing to decompose.
+    """
+    own_rounded = round(own_seq)
+    subtree_rounded = round(subtree_seq)
+    if subtree_rounded <= own_rounded:
+        return f"Tokens {_fmt_k(own_rounded)}"
+    sub_rounded = subtree_rounded - own_rounded
+    return (
+        f"Tokens {_fmt_k(subtree_rounded)} "
+        f"({_fmt_k(own_rounded)} own + {_fmt_k(sub_rounded)} subagents)"
+    )
 
 
 # ---------------------------------------------------------------------------

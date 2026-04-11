@@ -1644,10 +1644,10 @@ class TestRenderTurnsReport:
         out = measure_usage.render_turns_report(main_parsed, tree)
         # Both the parent and the nested child should get their own tables.
         assert out.count("parent turn") >= 2
-        # The main's spawning turn's row should show a subtree Seq (i.e. include
-        # child + grandchild rolled up), so the rendered report mentions
-        # "subtree" for nested nodes.
-        assert "subtree" in out
+        # Main session's header should decompose Tokens into own + subagents
+        # when nested subagents contribute (i.e. the total > own alone).
+        assert "own + " in out
+        assert "subagents)" in out
 
 
 # ---------------------------------------------------------------------------
