@@ -26,7 +26,14 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
-from ..metrics import model_aware_cost_breakdown
+from ..metrics import compute_metrics_from_parsed, model_aware_cost_breakdown
+# The summary modal deliberately reuses the plain text renderer's
+# format_metrics helper so the TUI and the /measure-usage skill
+# show byte-identical session summaries. This is a controlled
+# cross-layer import: tui → plain is fine because plain itself
+# touches no TUI code, so the subprocess isolation test
+# ("plain mustn't load textual") still holds.
+from ..plain.display import format_metrics
 from ..turns_label import short_agent_id
 from .detail_rows import (
     SORT_MODES,
@@ -422,6 +429,7 @@ class SessionDetailScreen(Screen):
     BINDINGS = [
         Binding("s", "cycle_sort", "Sort"),
         Binding("slash", "open_filter", "Filter"),
+        Binding("i", "open_summary", "Summary"),
         Binding("r", "reload", "Reload"),
         Binding("escape", "back", "Back"),
         Binding("q", "quit", "Quit"),
@@ -642,6 +650,24 @@ class SessionDetailScreen(Screen):
         else:
             self._sort_mode = target.id
         self._repopulate_table()
+
+    def action_open_summary(self) -> None:
+        """Show the full session-level summary.
+
+        Runs the same metrics computation the /measure-usage
+        skill produces (duration, token breakdown by type,
+        tool cost table, subagent rollups) and renders it via
+        the plain CLI's ``format_metrics`` so the two UIs stay
+        byte-identical. No file re-read — reuses the already-
+        parsed data the screen already has in memory.
+        """
+        self.app.push_screen(
+            SummaryModal(
+                title=self._title,
+                parsed=self._parsed,
+                tree=self._tree,
+            )
+        )
 
     def action_reload(self) -> None:
         """Re-parse the transcript from disk and rebuild the rows.
@@ -1022,6 +1048,85 @@ class TurnDetailModal(ModalScreen):
 
 def t_or_dash(value) -> str:
     return str(value) if value else "—"
+
+
+class SummaryModal(ModalScreen):
+    """Session-level summary overlay.
+
+    Shows what the ``/measure-usage`` skill shows in its text
+    output: duration, token breakdown by type, peak context,
+    turn + user-message counts, per-tool cost table, subagent
+    tree rollup. Reuses :func:`compute_metrics_from_parsed` and
+    :func:`format_metrics` directly so the TUI and the plain
+    CLI produce identical summaries — single source of truth.
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("enter", "close", "Close"),
+        Binding("i", "close", "Close"),
+        Binding("q", "close", "Close"),
+    ]
+
+    DEFAULT_CSS = """
+    SummaryModal {
+        align: center middle;
+    }
+    SummaryModal > Vertical {
+        width: 90%;
+        max-width: 110;
+        height: 85%;
+        border: round $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    SummaryModal #modal_header {
+        height: auto;
+        color: $accent;
+        text-style: bold;
+    }
+    SummaryModal #modal_body {
+        height: 1fr;
+        padding-top: 1;
+    }
+    SummaryModal #modal_body Static {
+        height: auto;
+    }
+    SummaryModal #modal_footer {
+        height: 1;
+        color: $text-muted;
+        dock: bottom;
+        padding-top: 1;
+    }
+    """
+
+    def __init__(
+        self,
+        title: str,
+        parsed: dict,
+        tree: list[dict],
+    ) -> None:
+        super().__init__()
+        self._title = title
+        self._parsed = parsed
+        self._tree = tree
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(f"Summary  ·  {self._title}", id="modal_header")
+            with VerticalScroll(id="modal_body"):
+                yield Static(self._summary_text())
+            yield Static("esc close", id="modal_footer")
+
+    def _summary_text(self) -> str:
+        start_ts = self._parsed.get("first_entry_ts") or 0.0
+        metrics = compute_metrics_from_parsed(
+            self._parsed, self._tree, start_ts
+        )
+        return format_metrics(metrics)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
 
 
 class NonturnDetailModal(ModalScreen):

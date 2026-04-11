@@ -354,21 +354,34 @@ def _latest_ts_in_parsed(parsed):
 def compute_metrics(transcript_path, start_ts, now=None):
     """Compute usage metrics from transcript since start_ts.
 
-    Returns a dict with merged totals, main session breakdown, and a tree
-    of subagent nodes (each with children).
-
-    ``now`` defaults to the timestamp of the latest entry inside the
-    tracked window — duration is derived from transcript data, not
-    wallclock. An empty window reports zero duration. Callers can still
-    pass ``now`` explicitly for tests or special cases.
+    Reads the transcript file, then delegates to
+    :func:`compute_metrics_from_parsed` so the actual computation
+    is shared with callers that already have a parsed result in
+    hand (the TUI's summary modal).
     """
     main = parse_transcript(transcript_path, start_ts)
+    subagent_infos = find_subagent_transcripts(transcript_path, start_ts)
+    tree = build_agent_tree(transcript_path, main, subagent_infos)
+    return compute_metrics_from_parsed(main, tree, start_ts, now=now)
+
+
+def compute_metrics_from_parsed(parsed, tree, start_ts, now=None):
+    """Compute usage metrics from already-parsed transcript data.
+
+    Same return shape as :func:`compute_metrics` but accepts
+    ``parsed`` (the ``parse_transcript`` result) and ``tree`` (the
+    ``build_agent_tree`` result) directly. Lets the TUI reuse the
+    metrics math on a session whose transcript is already in
+    memory — no second read from disk.
+
+    ``now`` defaults to the timestamp of the latest entry inside
+    the window; an empty window reports zero duration.
+    """
+    main = parsed
     if now is None:
         now = _latest_ts_in_parsed(main) or start_ts
     duration_s = round(now - start_ts, 1)
 
-    subagent_infos = find_subagent_transcripts(transcript_path, start_ts)
-    tree = build_agent_tree(transcript_path, main, subagent_infos)
     all_subagents = flatten_tree(tree)
 
     # Merge totals across main + all subagents
