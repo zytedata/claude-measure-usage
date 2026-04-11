@@ -177,28 +177,57 @@ def _session_entry(path: Path) -> SessionEntry:
 
 
 def _pick_summary(rows: list[dict]) -> str | None:
-    """Return a display-friendly first-user-message summary.
+    """Return a display-friendly first-user-intent summary.
 
     Walks the parsed rows stream in order and returns the first row
-    that represents a user intent — either a plain user message or
-    a slash-command invocation. Client-side shims (task
-    notifications, bash input/output wrappers, etc.) are already
-    dropped by the nonturn-row pipeline, so we don't have to
-    re-filter them here.
+    that represents a meaningful user intent — either a plain user
+    message or a content slash command. Navigation-only slash
+    commands (``/clear``, ``/compact``, ``/exit``, etc.) are treated
+    as transparent: they mark session boundaries or tooling state
+    rather than describing what the session is about, so the picker
+    looks past them to the next real intent. Client-side shims
+    (task notifications, bash input/output wrappers, ...) are
+    already dropped upstream by the nonturn-row pipeline.
 
     The returned string has the ``[user] `` / ``[slash] `` prefix
-    stripped for cleaner display; the session screen only has one
-    column to render this in, and the kind prefix adds noise
-    without adding information the user can't infer from context.
+    stripped; the session screen has only one column to render
+    this in, and the kind marker adds noise without adding
+    information the user can't infer from context.
     """
     for row in rows:
         kind = row.get("kind", "")
         what = row.get("what") or ""
+        if kind == "slash-command":
+            stripped = _strip_prefix(what, "[slash] ")
+            cmd = stripped.split()[0] if stripped else ""
+            if cmd in _NAVIGATION_SLASH_COMMANDS:
+                continue
+            return stripped
         if kind == "user":
             return _strip_prefix(what, "[user] ")
-        if kind == "slash-command":
-            return _strip_prefix(what, "[slash] ")
     return None
+
+
+# Slash commands that only adjust Claude Code's session/tooling
+# state and say nothing about what the user is working on. Sessions
+# that *begin* with one of these (common: ``/clear`` to start a
+# fresh context) should be identified by whatever comes next, not
+# by the boundary marker itself.
+_NAVIGATION_SLASH_COMMANDS = frozenset({
+    "/clear",
+    "/compact",
+    "/exit",
+    "/quit",
+    "/reset",
+    "/init",
+    "/login",
+    "/logout",
+    "/model",
+    "/config",
+    "/help",
+    "/status",
+    "/cost",
+})
 
 
 def _strip_prefix(text: str, prefix: str) -> str:

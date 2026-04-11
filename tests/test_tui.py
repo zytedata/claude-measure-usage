@@ -190,10 +190,44 @@ class TestDiscoverSessions:
         [e] = discovery.discover_sessions(proj)
         assert e.first_user_message == "hello world"
 
-    def test_summary_collapses_slash_command(self, tmp_path):
+    def test_summary_keeps_content_slash_command(self, tmp_path):
+        # Content slash commands like /commit or /review-pr ARE the
+        # task the user started — they should be surfaced.
         proj = tmp_path / "proj"
         proj.mkdir()
-        # Slash-command wrapper as Claude Code writes it.
+        entry = (
+            '{"type":"user","message":{"role":"user","content":'
+            '"<command-name>/commit</command-name>\\n'
+            '<command-args>-m fix bug</command-args>"},'
+            '"timestamp":"2030-01-01T00:00:00Z","uuid":"u1"}\n'
+        )
+        (proj / "s.jsonl").write_text(entry)
+        [e] = discovery.discover_sessions(proj)
+        assert e.first_user_message == "/commit -m fix bug"
+
+    def test_summary_skips_navigation_slash_to_real_message(self, tmp_path):
+        # The common /clear-then-real-prompt pattern: /clear marks a
+        # session boundary, it says nothing about what the session
+        # is about. Summary should skip past it.
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        lines = [
+            '{"type":"user","message":{"role":"user","content":'
+            '"<command-name>/clear</command-name>\\n<command-args></command-args>"},'
+            '"timestamp":"2030-01-01T00:00:00Z","uuid":"u1"}',
+            '{"type":"user","message":{"role":"user","content":"fix the auth bug"},'
+            '"timestamp":"2030-01-01T00:00:01Z","uuid":"u2"}',
+        ]
+        (proj / "s.jsonl").write_text("\n".join(lines) + "\n")
+        [e] = discovery.discover_sessions(proj)
+        assert e.first_user_message == "fix the auth bug"
+
+    def test_summary_falls_back_when_only_navigation_slash(self, tmp_path):
+        # A session that's just /clear and nothing else has no
+        # meaningful summary — better to show nothing than show
+        # "/clear" and pretend it's informative.
+        proj = tmp_path / "proj"
+        proj.mkdir()
         entry = (
             '{"type":"user","message":{"role":"user","content":'
             '"<command-name>/clear</command-name>\\n<command-args></command-args>"},'
@@ -201,7 +235,7 @@ class TestDiscoverSessions:
         )
         (proj / "s.jsonl").write_text(entry)
         [e] = discovery.discover_sessions(proj)
-        assert e.first_user_message == "/clear"
+        assert e.first_user_message is None
 
 
 class TestDominantModel:
