@@ -639,6 +639,136 @@ class TestTinyModel:
 # ProjectScreen (pilot smoke test)
 # ---------------------------------------------------------------------------
 
+class TestNonturnDetailModal:
+    """Unit tests for the non-turn modal's per-kind renderers.
+
+    Constructs synthetic DetailRow objects with fake underlying
+    entries and asserts the rendered body contains the right
+    fields. Avoids live pilot navigation — those tests have
+    proven flaky for finding specific session kinds in the
+    real ~/.claude/projects tree.
+    """
+
+    def _mk_row(self, kind: str, entry: dict):
+        from claude_usage_tui.tui.detail_rows import DetailRow
+
+        return DetailRow(
+            kind="nonturn",
+            what="",
+            raw={"nonturn": {"kind": kind, "entry": entry}},
+        )
+
+    def _modal(self, kind: str, entry: dict):
+        from claude_usage_tui.tui.screens import NonturnDetailModal
+
+        return NonturnDetailModal(self._mk_row(kind, entry))
+
+    def test_user_renders_full_text(self):
+        entry = {"message": {"content": "fix the auth bug in jwt.py"}}
+        body = self._modal("user", entry)._body_text()
+        assert body == "fix the auth bug in jwt.py"
+
+    def test_user_renders_text_blocks(self):
+        entry = {
+            "message": {
+                "content": [
+                    {"type": "text", "text": "first line"},
+                    {"type": "text", "text": "second line"},
+                ]
+            }
+        }
+        body = self._modal("user", entry)._body_text()
+        assert "first line" in body
+        assert "second line" in body
+
+    def test_slash_command_extracts_name_and_args(self):
+        entry = {
+            "message": {
+                "content": (
+                    "<command-name>/commit</command-name>\n"
+                    "<command-args>-m fix auth bug</command-args>\n"
+                    "<command-message>Generate a conventional commit</command-message>"
+                )
+            }
+        }
+        body = self._modal("slash-command", entry)._body_text()
+        assert "command: /commit" in body
+        assert "args:    -m fix auth bug" in body
+        assert "Generate a conventional commit" in body
+
+    def test_attachment_command_permissions_lists_allowed_tools(self):
+        entry = {
+            "attachment": {
+                "type": "command_permissions",
+                "allowedTools": ["Skill", "Bash", "Read", "Write"],
+            }
+        }
+        body = self._modal("attachment:command_permissions", entry)._body_text()
+        assert "type: command_permissions" in body
+        assert "allowedTools (4)" in body
+        for tool in ("Skill", "Bash", "Read", "Write"):
+            assert f"· {tool}" in body
+
+    def test_attachment_deferred_tools_delta_lists_added_removed(self):
+        entry = {
+            "attachment": {
+                "type": "deferred_tools_delta",
+                "addedNames": ["WebFetch", "WebSearch"],
+                "removedNames": ["Monitor"],
+            }
+        }
+        body = self._modal(
+            "attachment:deferred_tools_delta", entry
+        )._body_text()
+        assert "added (2)" in body
+        assert "+ WebFetch" in body
+        assert "removed (1)" in body
+        assert "- Monitor" in body
+
+    def test_attachment_unknown_falls_back_to_json(self):
+        entry = {
+            "attachment": {
+                "type": "weird_new_kind",
+                "customField": "custom value",
+            }
+        }
+        body = self._modal("attachment:weird_new_kind", entry)._body_text()
+        assert "weird_new_kind" in body
+        assert "customField" in body
+        assert "custom value" in body
+
+    def test_permission_mode_shows_new_mode(self):
+        entry = {"permissionMode": "acceptEdits"}
+        body = self._modal("permission-mode", entry)._body_text()
+        assert "new mode: acceptEdits" in body
+
+    def test_compact_boundary_shows_metadata(self):
+        entry = {
+            "compactMetadata": {
+                "trigger": "manual",
+                "preTokens": 150_000,
+                "postTokens": 35_000,
+            }
+        }
+        body = self._modal("system:compact_boundary", entry)._body_text()
+        assert "trigger:   manual" in body
+        assert "preTokens: 150000" in body
+        assert "postTokens: 35000" in body
+
+    def test_unknown_kind_json_fallback_filters_bookkeeping(self):
+        entry = {
+            "uuid": "secret-uuid",
+            "parentUuid": "also-secret",
+            "interestingField": "keep me",
+        }
+        body = self._modal("mystery", entry)._body_text()
+        assert "interestingField" in body
+        assert "keep me" in body
+        # Bookkeeping fields filtered out
+        assert "secret-uuid" not in body
+        assert "parentUuid" not in body
+
+
 class TestProjectScreenPilot:
     """End-to-end smoke test for the project picker.
 

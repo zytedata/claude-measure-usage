@@ -595,6 +595,8 @@ class SessionDetailScreen(Screen):
             )
         elif row.kind == "subagent":
             self._drill_into_subagent(row.raw.get("subagent") or {})
+        elif row.kind == "nonturn":
+            self.app.push_screen(NonturnDetailModal(row))
 
     def _handle_modal_result(self, result) -> None:
         """Callback for ``TurnDetailModal`` dismissal.
@@ -872,6 +874,230 @@ class TurnDetailModal(ModalScreen):
 
 def t_or_dash(value) -> str:
     return str(value) if value else "—"
+
+
+class NonturnDetailModal(ModalScreen):
+    """Full-payload modal for non-turn timeline rows.
+
+    Renders whichever fields are meaningful for the row's
+    ``kind`` — the ``allowedTools`` list for a
+    ``command_permissions`` attachment, the full user message
+    text, compaction metadata, etc. Unknown kinds fall back to
+    a pretty-printed JSON dump so nothing is ever invisible.
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("q", "close", "Close"),
+    ]
+
+    DEFAULT_CSS = """
+    NonturnDetailModal {
+        align: center middle;
+    }
+    NonturnDetailModal > Vertical {
+        width: 90%;
+        max-width: 120;
+        height: 80%;
+        border: round $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    NonturnDetailModal #modal_header {
+        height: auto;
+        color: $accent;
+        text-style: bold;
+    }
+    NonturnDetailModal #modal_body {
+        height: 1fr;
+        padding-top: 1;
+    }
+    NonturnDetailModal #modal_body Static {
+        height: auto;
+        margin-bottom: 1;
+    }
+    NonturnDetailModal #modal_footer {
+        height: 1;
+        color: $text-muted;
+        dock: bottom;
+        padding-top: 1;
+    }
+    """
+
+    def __init__(self, row: DetailRow) -> None:
+        super().__init__()
+        self._row = row
+        self._entry = (row.raw.get("nonturn") or {}).get("entry") or {}
+        self._kind = (row.raw.get("nonturn") or {}).get("kind") or ""
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(self._header_text(), id="modal_header")
+            with VerticalScroll(id="modal_body"):
+                yield Static(self._body_text())
+            yield Static("esc close", id="modal_footer")
+
+    def _header_text(self) -> str:
+        bits = [self._kind or "event"]
+        if self._row.when:
+            bits.append(self._row.when)
+        return "  ·  ".join(bits)
+
+    def _body_text(self) -> str:
+        """Dispatch on ``kind`` for structured per-type rendering.
+
+        Each branch pulls whichever fields are meaningful for
+        that entry type. The ultimate fallback is a pretty JSON
+        dump so fields we haven't classified still display.
+        """
+        kind = self._kind
+        entry = self._entry
+        if kind == "user":
+            return self._render_user(entry)
+        if kind == "slash-command":
+            return self._render_slash(entry)
+        if kind.startswith("attachment:"):
+            return self._render_attachment(kind, entry)
+        if kind == "permission-mode":
+            return self._render_permission_mode(entry)
+        if kind == "system:compact_boundary":
+            return self._render_compact(entry)
+        if kind.startswith("system:"):
+            return self._render_system(entry)
+        if kind == "interrupt":
+            return self._render_user(entry)
+        return self._render_json_fallback(entry)
+
+    # --- per-kind renderers ---
+
+    def _render_user(self, entry: dict) -> str:
+        msg = entry.get("message") or {}
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text":
+                    parts.append(block.get("text") or "")
+            return "\n\n".join(p for p in parts if p)
+        return self._render_json_fallback(entry)
+
+    def _render_slash(self, entry: dict) -> str:
+        import re
+
+        msg = entry.get("message") or {}
+        content = msg.get("content")
+        text = ""
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text += block.get("text") or ""
+        name_match = re.search(
+            r"<command-name>(.*?)</command-name>", text, re.DOTALL
+        )
+        args_match = re.search(
+            r"<command-args>(.*?)</command-args>", text, re.DOTALL
+        )
+        msg_match = re.search(
+            r"<command-message>(.*?)</command-message>", text, re.DOTALL
+        )
+        lines = []
+        if name_match:
+            lines.append(f"command: {name_match.group(1).strip()}")
+        if args_match and args_match.group(1).strip():
+            lines.append(f"args:    {args_match.group(1).strip()}")
+        if msg_match and msg_match.group(1).strip():
+            lines.append("")
+            lines.append(msg_match.group(1).strip())
+        return "\n".join(lines) if lines else text
+
+    def _render_attachment(self, kind: str, entry: dict) -> str:
+        import json
+
+        att = entry.get("attachment") or {}
+        atype = att.get("type", "")
+        lines = [f"type: {atype}" if atype else "attachment"]
+        if atype == "command_permissions":
+            allowed = att.get("allowedTools") or []
+            lines.append("")
+            lines.append(f"allowedTools ({len(allowed)}):")
+            for tool in allowed:
+                lines.append(f"  · {tool}")
+        elif atype == "deferred_tools_delta":
+            added = att.get("addedNames") or []
+            removed = att.get("removedNames") or []
+            if added:
+                lines.append("")
+                lines.append(f"added ({len(added)}):")
+                for name in added:
+                    lines.append(f"  + {name}")
+            if removed:
+                lines.append("")
+                lines.append(f"removed ({len(removed)}):")
+                for name in removed:
+                    lines.append(f"  - {name}")
+        else:
+            # Unknown attachment type — dump the raw payload so the
+            # user can still see what was attached.
+            try:
+                pretty = json.dumps(att, indent=2, ensure_ascii=False)
+            except Exception:
+                pretty = repr(att)
+            lines.append("")
+            lines.append(pretty)
+        return "\n".join(lines)
+
+    def _render_permission_mode(self, entry: dict) -> str:
+        mode = entry.get("permissionMode", "?")
+        return f"new mode: {mode}"
+
+    def _render_compact(self, entry: dict) -> str:
+        meta = entry.get("compactMetadata") or {}
+        lines = []
+        trig = meta.get("trigger")
+        if trig:
+            lines.append(f"trigger:   {trig}")
+        pre = meta.get("preTokens")
+        if pre is not None:
+            lines.append(f"preTokens: {pre}")
+        post = meta.get("postTokens")
+        if post is not None:
+            lines.append(f"postTokens: {post}")
+        if not lines:
+            return self._render_json_fallback(entry)
+        return "\n".join(lines)
+
+    def _render_system(self, entry: dict) -> str:
+        content = entry.get("content")
+        if isinstance(content, str) and content:
+            return content
+        return self._render_json_fallback(entry)
+
+    def _render_json_fallback(self, entry: dict) -> str:
+        """Last-resort pretty JSON dump for unclassified payloads.
+
+        A few bookkeeping fields that are never interesting to a
+        human reader get filtered out so the dump stays readable.
+        """
+        import json
+
+        filtered = {
+            k: v for k, v in entry.items()
+            if k not in {"uuid", "parentUuid", "sessionId", "userType",
+                         "entrypoint", "isSidechain", "version", "gitBranch"}
+        }
+        try:
+            return json.dumps(filtered, indent=2, ensure_ascii=False)
+        except Exception:
+            return repr(filtered)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
 
 
 def _cells_for(row: DetailRow):

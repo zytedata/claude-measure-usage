@@ -371,6 +371,14 @@ class _TranscriptParser:
             "kind": kind,
             "ts": self.entry_ts,
             "what": label,
+            # Retain the raw transcript entry so interactive
+            # consumers (the TUI's non-turn payload modal) can
+            # render full contents — allowedTools lists, full
+            # user messages, compact-boundary metadata, etc. —
+            # without re-reading the transcript. The plain CLI
+            # renderer doesn't touch this field, so it's pure
+            # additive storage.
+            "entry": entry,
         }
         # Preserve compact_boundary metadata so the metrics layer can
         # detect epoch boundaries when attributing cache_w caused cost.
