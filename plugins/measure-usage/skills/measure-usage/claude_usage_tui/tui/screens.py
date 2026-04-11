@@ -1252,11 +1252,20 @@ class NonturnDetailModal(ModalScreen):
 def _cells_for(row: DetailRow):
     """Turn a :class:`DetailRow` into styled cells for DataTable.
 
-    Subagent footnote rows are rendered dimmed so they read as
-    sub-items of the turn they attach to, not as independent
-    entries. Non-turn rows also get the dim treatment — they're
-    timeline annotations, not primary content. Turn rows stay at
-    default style.
+    Row styling differentiates three kinds of content by role:
+
+    - **Turn rows** keep default styling (primary content). Only
+      the model cell is colored by family so opus / sonnet /
+      haiku are distinguishable at a glance across a long
+      session.
+    - **Subagent rows** render in cyan so they visually pop as
+      actionable footnotes — Enter drills into them, they're
+      real work, and they shouldn't look identical to the inert
+      annotation rows below.
+    - **Non-turn rows** (user messages, attachments, compact
+      boundaries, permission changes) render dim. They're
+      structural anchors, not data the user is scanning for
+      hotspots.
     """
     from rich.text import Text
 
@@ -1277,6 +1286,40 @@ def _cells_for(row: DetailRow):
         row.cache_w,
     ]
     if row.kind == "turn":
-        return cells_raw
-    style = "dim"
-    return [Text(c or "", style=style) for c in cells_raw]
+        out: list = list(cells_raw)
+        model_color = _model_color(row.model)
+        if model_color:
+            # Column index 9 is the model cell. Swap in a Rich
+            # Text object so only that cell is colored; the
+            # rest of the row stays at default style.
+            out[9] = Text(row.model or "", style=model_color)
+        return out
+    if row.kind == "subagent":
+        model_color = _model_color(row.model)
+        styled: list = []
+        for i, c in enumerate(cells_raw):
+            if i == 9 and model_color:
+                styled.append(Text(c or "", style=f"{model_color} bold"))
+            else:
+                styled.append(Text(c or "", style="cyan"))
+        return styled
+    # nonturn
+    return [Text(c or "", style="dim") for c in cells_raw]
+
+
+def _model_color(model: str) -> str | None:
+    """Map a model family to a Rich color name.
+
+    Uses ANSI-named colors so the result respects whatever
+    terminal theme the user runs — cyan / red / green all adapt
+    to both dark and light backgrounds. Opus = red (most
+    expensive), Sonnet = no color (baseline), Haiku = green
+    (cheapest). Unknown models return ``None`` → no coloring.
+    """
+    if not model:
+        return None
+    if "opus" in model:
+        return "red"
+    if "haiku" in model:
+        return "green"
+    return None

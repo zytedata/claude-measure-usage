@@ -343,6 +343,83 @@ class TestBuildDetailRows:
                 assert r.what
 
 
+class TestCellStyling:
+    """Unit coverage for _cells_for's per-row-kind styling.
+
+    Avoids asserting exact Rich markup and instead checks the
+    ``style`` attribute on the emitted ``rich.text.Text`` objects
+    so the test reads as "what the user sees" rather than
+    "what Rich's representation happens to be today".
+    """
+
+    def _mk(self, kind: str, **overrides):
+        return detail_rows.DetailRow(
+            kind=kind,
+            num=overrides.get("num", "1"),
+            what=overrides.get("what", "hello"),
+            model=overrides.get("model", ""),
+            cost=overrides.get("cost", "1K"),
+            own=overrides.get("own", "1K"),
+        )
+
+    def test_turn_row_default_styling(self):
+        from claude_usage_tui.tui.screens import _cells_for
+
+        row = self._mk("turn", model="claude-sonnet-4-6")
+        cells = _cells_for(row)
+        # Plain strings, no Rich Text wrapping (Sonnet → no color)
+        assert all(isinstance(c, str) for c in cells)
+
+    def test_turn_row_opus_model_colored_red(self):
+        from rich.text import Text
+        from claude_usage_tui.tui.screens import _cells_for
+
+        row = self._mk("turn", model="claude-opus-4-6")
+        cells = _cells_for(row)
+        # Model cell (index 9) swapped to a red Text object; rest
+        # stay as plain strings.
+        assert isinstance(cells[9], Text)
+        assert "red" in str(cells[9].style)
+
+    def test_turn_row_haiku_model_colored_green(self):
+        from rich.text import Text
+        from claude_usage_tui.tui.screens import _cells_for
+
+        row = self._mk("turn", model="claude-haiku-4-5")
+        cells = _cells_for(row)
+        assert isinstance(cells[9], Text)
+        assert "green" in str(cells[9].style)
+
+    def test_subagent_row_colored_cyan(self):
+        from rich.text import Text
+        from claude_usage_tui.tui.screens import _cells_for
+
+        row = self._mk("subagent", num="↳a3f2", what="[Agent] investigate")
+        cells = _cells_for(row)
+        # Every cell is a Text with cyan style
+        assert all(isinstance(c, Text) for c in cells)
+        assert all("cyan" in str(c.style) for c in cells)
+
+    def test_subagent_row_model_cell_keeps_family_color(self):
+        from rich.text import Text
+        from claude_usage_tui.tui.screens import _cells_for
+
+        row = self._mk("subagent", model="claude-opus-4-6")
+        cells = _cells_for(row)
+        assert isinstance(cells[9], Text)
+        # Model cell gets the model color (red) in addition to bold
+        assert "red" in str(cells[9].style)
+
+    def test_nonturn_row_colored_dim(self):
+        from rich.text import Text
+        from claude_usage_tui.tui.screens import _cells_for
+
+        row = self._mk("nonturn", what="[user] hi")
+        cells = _cells_for(row)
+        assert all(isinstance(c, Text) for c in cells)
+        assert all("dim" in str(c.style) for c in cells)
+
+
 class TestColumnWidthsFitSortIndicator:
     """Every sortable column must be wide enough for ``label ▼``.
 
