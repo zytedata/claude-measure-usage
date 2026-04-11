@@ -108,8 +108,13 @@ class SessionScreen(Screen):
     needed for v1.
     """
 
+    # Both Esc and ← bind to back-one-level per docs/tui-ux.md. The
+    # DataTable row cursor mode ignores ← (no horizontal cursor),
+    # so the browser-style "back" shortcut has no conflict. Only
+    # one of the two is shown in the footer to avoid noise.
     BINDINGS = [
         Binding("escape", "back", "Back"),
+        Binding("left", "back", "Back", show=False),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
     ]
