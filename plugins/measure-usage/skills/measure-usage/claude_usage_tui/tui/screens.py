@@ -977,16 +977,16 @@ class TurnDetailModal(ModalScreen):
         with Vertical():
             yield Static(self._header_text(), id="modal_header")
             with VerticalScroll(id="modal_body"):
-                yield Static(self._cost_text())
-                yield Static(self._raw_counts_text())
+                yield Static(self._cost_text(), markup=False)
+                yield Static(self._raw_counts_text(), markup=False)
                 text_preview = (self._turn.get("text_preview") or "").strip()
                 if text_preview:
                     yield Label("Text preview")
-                    yield Static(text_preview)
+                    yield Static(text_preview, markup=False)
                 tool_calls = self._turn.get("tool_calls") or []
                 if tool_calls:
                     yield Label(f"Tool calls ({len(tool_calls)})")
-                    yield Static(self._tool_calls_text(tool_calls))
+                    yield Static(self._tool_calls_text(tool_calls), markup=False)
                 if self._children:
                     yield Label("Spawned subagents")
                     yield OptionList(
@@ -1383,7 +1383,7 @@ class NonturnDetailModal(ModalScreen):
         with Vertical():
             yield Static(self._header_text(), id="modal_header")
             with VerticalScroll(id="modal_body"):
-                yield Static(self._body_text())
+                yield Static(self._body_text(), markup=False)
             yield Static("esc close", id="modal_footer")
 
     def _header_text(self) -> str:
