@@ -30,6 +30,23 @@ Press `?` on any screen for the full keybinding list.
 
 ## Slash command
 
+Install as a Claude Code plugin. **Marketplace** — install once, persists across
+sessions:
+
+```bash
+claude plugin marketplace add /path/to/measure-usage
+claude plugin install measure-usage
+```
+
+**Direct** — load for a single session, ideal for development (changes take
+effect immediately):
+
+```bash
+claude --plugin-dir /path/to/measure-usage/plugins/measure-usage
+```
+
+Then, inside a session:
+
 Full session stats (default, no tracking needed):
 
 ```
@@ -262,18 +279,3 @@ Parent-child relationships are inferred by matching timestamps: when an Agent or
 Skill tool call in a transcript is followed within 100ms by a new subagent transcript
 starting, they are linked as parent and child. The **context** column shows the
 peak context window per agent — each agent has its own independent context.
-
-## Install
-
-**Marketplace** — install once, persists across sessions:
-
-```bash
-claude plugin marketplace add /path/to/measure-usage
-claude plugin install measure-usage
-```
-
-**Direct** — load for a single session, ideal for development (changes take effect immediately):
-
-```bash
-claude --plugin-dir /path/to/measure-usage/plugins/measure-usage
-```
