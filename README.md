@@ -1,8 +1,34 @@
 # measure-usage
 
-Claude Code plugin that tracks token usage, cost breakdown, and tool stats during sessions.
+Token usage, cost breakdown, and tool stats for Claude Code sessions. Two ways
+to use it:
 
-## Usage
+- **Inspect past sessions** with `claude-usage-tui`, a standalone terminal app
+  that walks `~/.claude/projects/` and drills down to any turn or subagent.
+- **Inside a live session** with the `/measure-usage` slash command, installed
+  as a Claude Code plugin.
+
+## Interactive TUI
+
+`claude-usage-tui` is a read-only debugger for Claude Code session transcripts.
+It's not on PyPI yet — install from a local checkout:
+
+```bash
+uv tool install --editable /path/to/measure-usage
+# or: pip install -e /path/to/measure-usage
+```
+
+Then run `claude-usage-tui` from anywhere. It walks `~/.claude/projects/` with
+three stacked screens:
+
+1. **Projects** — every project directory with session count and last activity.
+2. **Sessions** — transcripts in the selected project with a one-line preview.
+3. **Session detail** — the same per-turn table as `/measure-usage turns`;
+   drilling into a subagent `↳id` row pushes a new detail screen for it.
+
+Press `?` on any screen for the full keybinding list.
+
+## Slash command
 
 Full session stats (default, no tracking needed):
 
@@ -174,27 +200,6 @@ Each section's header decomposes the total as
 `Tokens N` for a leaf. Subagent tables repeat the same column layout
 scoped to that subagent's own turns, with a `parent turn N` cross-reference
 back to the spawning row in the main table.
-
-## Interactive TUI
-
-For exploring past sessions interactively, the repo also ships a read-only
-terminal UI. It's not on PyPI yet — install from a local checkout:
-
-```bash
-uv tool install --editable /path/to/measure-usage
-# or: pip install -e /path/to/measure-usage
-```
-
-Then run `claude-usage-tui` from anywhere.
-
-It walks `~/.claude/projects/` with three stacked screens:
-
-1. **Projects** — every project directory with session count and last activity.
-2. **Sessions** — transcripts in the selected project with a one-line preview.
-3. **Session detail** — the same per-turn table as `/measure-usage turns`;
-   drilling into a subagent `↳id` row pushes a new detail screen for it.
-
-Press `?` on any screen for the full keybinding list.
 
 ## How costs are calculated
 
