@@ -175,6 +175,27 @@ Each section's header decomposes the total as
 scoped to that subagent's own turns, with a `parent turn N` cross-reference
 back to the spawning row in the main table.
 
+## Interactive TUI
+
+For exploring past sessions interactively, the repo also ships a read-only
+terminal UI. It's not on PyPI yet — install from a local checkout:
+
+```bash
+uv tool install --editable /path/to/measure-usage
+# or: pip install -e /path/to/measure-usage
+```
+
+Then run `claude-usage-tui` from anywhere.
+
+It walks `~/.claude/projects/` with three stacked screens:
+
+1. **Projects** — every project directory with session count and last activity.
+2. **Sessions** — transcripts in the selected project with a one-line preview.
+3. **Session detail** — the same per-turn table as `/measure-usage turns`;
+   drilling into a subagent `↳id` row pushes a new detail screen for it.
+
+Press `?` on any screen for the full keybinding list.
+
 ## How costs are calculated
 
 ### Token cost (Sonnet input-equivalent)
