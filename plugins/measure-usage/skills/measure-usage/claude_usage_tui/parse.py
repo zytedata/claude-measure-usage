@@ -352,6 +352,9 @@ class _TranscriptParser:
         out_tokens = usage.get("output_tokens", 0)
         cache_r = usage.get("cache_read_input_tokens", 0)
         cache_w = usage.get("cache_creation_input_tokens", 0)
+        cache_creation = usage.get("cache_creation") or {}
+        cache_w_5m = cache_creation.get("ephemeral_5m_input_tokens", 0)
+        cache_w_1h = cache_creation.get("ephemeral_1h_input_tokens", 0)
         return {
             "kind": "turn",
             "turn_num": self.turn_count,
@@ -368,6 +371,12 @@ class _TranscriptParser:
             "out_tokens": out_tokens,
             "cache_r": cache_r,
             "cache_w": cache_w,
+            # Per-tier cache_w split. Lets turn_own_seq price 1h cache
+            # writes at 2.0x instead of the flat 1.25x fallback, so the
+            # sum of per-turn costs reconciles with the session total
+            # that cost_breakdown produces from the same tier data.
+            "cache_w_5m": cache_w_5m,
+            "cache_w_1h": cache_w_1h,
             "ctx": in_tokens + cache_r + cache_w,
             "text_preview": "",
             "tool_calls": [],
