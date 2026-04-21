@@ -74,6 +74,7 @@ class ProjectScreen(Screen):
     """
 
     BINDINGS = [
+        Binding("r", "reload", "Reload"),
         Binding("q", "quit", "Quit"),
         Binding("question_mark", "help", "Help"),
     ]
@@ -90,16 +91,51 @@ class ProjectScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._entries = discover_projects()
-        self.sub_title = f"{len(self._entries)} projects"
         table = self.query_one(DataTable)
         table.add_column("Project", width=60)
         table.add_column("Sessions", width=10)
         table.add_column("Last", width=12)
+        self._entries = discover_projects()
+        self._populate_table(use_cwd_cursor=True)
+
+    def action_reload(self) -> None:
+        """Rescan ``~/.claude/projects`` and rebuild the table.
+
+        Filesystem-only — no transcripts are parsed — so this is
+        fast even for big trees. Preserves the cursor on the
+        previously highlighted project if its directory still
+        exists after the rescan; otherwise falls back to row 0.
+        """
+        table = self.query_one(DataTable)
+        idx = table.cursor_row
+        preserve: Path | None = None
+        if idx is not None and 0 <= idx < len(self._entries):
+            preserve = self._entries[idx].project_dir
+        self._entries = discover_projects()
+        self._populate_table(preserve_key=preserve)
+
+    def _populate_table(
+        self,
+        use_cwd_cursor: bool = False,
+        preserve_key: Path | None = None,
+    ) -> None:
+        """Rebuild DataTable rows from ``self._entries``.
+
+        Cursor lands on ``preserve_key`` if given, else on the
+        current cwd's project when ``use_cwd_cursor`` is set
+        (initial mount) — so the common case of "I'm in a
+        project, open its recent session" takes zero keystrokes
+        of navigation. Falls back to row 0 if neither matches.
+        """
+        self.sub_title = f"{len(self._entries)} projects"
+        table = self.query_one(DataTable)
+        table.clear()
         if not self._entries:
             return
-        cwd_dir = project_for_cwd()
-        cwd_row = 0
+        target = preserve_key
+        if target is None and use_cwd_cursor:
+            target = project_for_cwd()
+        target_idx = 0
         for i, entry in enumerate(self._entries):
             table.add_row(
                 entry.cwd_display,
@@ -107,12 +143,9 @@ class ProjectScreen(Screen):
                 rel_time(entry.last_activity),
                 key=str(entry.project_dir),
             )
-            if cwd_dir is not None and entry.project_dir == cwd_dir:
-                cwd_row = i
-        # Land the cursor on the current cwd's project so the common
-        # case — "I'm in a project, open my recent session here" —
-        # takes zero keystrokes of navigation.
-        table.cursor_coordinate = Coordinate(cwd_row, 0)
+            if target is not None and entry.project_dir == target:
+                target_idx = i
+        table.cursor_coordinate = Coordinate(target_idx, 0)
         table.focus()
 
     def on_data_table_row_selected(
@@ -135,7 +168,8 @@ class ProjectScreen(Screen):
                 intro=(
                     "Browse Claude Code projects under "
                     "~/.claude/projects. Enter drills into a "
-                    "project's session list.\n"
+                    "project's session list; r rescans the "
+                    "projects directory.\n"
                 ),
             )
         )
@@ -161,6 +195,7 @@ class SessionScreen(Screen):
     # just requiring ``Esc`` for back.
     BINDINGS = [
         Binding("i", "open_summary", "Summary"),
+        Binding("r", "reload", "Reload"),
         Binding("escape", "back", "Back"),
         Binding("q", "quit", "Quit"),
         Binding("question_mark", "help", "Help"),
@@ -195,6 +230,11 @@ class SessionScreen(Screen):
         super().__init__()
         self._project = project
         self._entries: list[SessionEntry] = []
+        # Bumped on every load start so in-flight callbacks from
+        # a cancelled worker can tell they're stale and drop. See
+        # ``_start_loader`` for the full race description.
+        self._load_epoch = 0
+        self._pending_cursor_key: Path | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -207,10 +247,6 @@ class SessionScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        paths = list_session_paths(self._project.project_dir)
-        self.sub_title = (
-            f"{self._project.cwd_display}  —  loading {len(paths)} sessions…"
-        )
         table = self.query_one(DataTable)
         table.add_column("Started", width=18)
         table.add_column("Turns", width=6)
@@ -218,18 +254,67 @@ class SessionScreen(Screen):
         table.add_column("Peak ctx", width=10)
         table.add_column("Model", width=8)
         table.add_column("Summary")
+        self._start_loader()
 
+    def action_reload(self) -> None:
+        """Rescan the project directory and re-parse every transcript.
+
+        Preserves the highlighted session's cursor position if it
+        still exists after the reparse; new sessions appear at
+        their natural sort position. Uses the same background
+        worker as the initial mount so the UI stays responsive
+        even when the project has many large transcripts.
+        """
+        table = self.query_one(DataTable)
+        idx = table.cursor_row
+        preserve: Path | None = None
+        if idx is not None and 0 <= idx < len(self._entries):
+            preserve = self._entries[idx].transcript_path
+        self._start_loader(preserve_cursor=preserve)
+
+    def _start_loader(self, preserve_cursor: Path | None = None) -> None:
+        """Kick off (or restart) the background transcript parser.
+
+        Shared by :meth:`on_mount` and :meth:`action_reload`.
+
+        Bumps :attr:`_load_epoch` before starting the new worker
+        and stamps the epoch into every ``call_from_thread``
+        dispatch. ``run_worker(exclusive=True)`` cancels the
+        previous worker but can't interrupt a mid-iteration
+        Python thread — any already-dispatched callbacks can
+        still fire on the main thread after the new worker has
+        started and would otherwise append stale entries into
+        the freshly-cleared list. The epoch check in each
+        handler makes those late callbacks a no-op.
+        """
+        self._load_epoch += 1
+        epoch = self._load_epoch
+        self._entries = []
+        self._pending_cursor_key = preserve_cursor
+
+        paths = list_session_paths(self._project.project_dir)
+        self.sub_title = (
+            f"{self._project.cwd_display}  —  loading {len(paths)} sessions…"
+        )
+        table = self.query_one(DataTable)
+        table.clear()
         loading = self.query_one("#loading")
+        loading.remove_class("-hidden")
+        try:
+            self.query_one("#loading_label", Label).update(
+                "Loading sessions…"
+            )
+        except Exception:
+            pass
+
         if not paths:
             loading.add_class("-hidden")
-            self._finish_loading()
+            self._finish_loading(epoch)
             return
         progress = self.query_one("#loading_bar", ProgressBar)
         progress.update(total=len(paths), progress=0)
-        # exclusive=True cancels any prior loader on this screen so
-        # pressing r to reload doesn't leave two parsers racing.
         self.run_worker(
-            lambda: self._parse_all(paths),
+            lambda: self._parse_all(paths, epoch),
             thread=True,
             exclusive=True,
             name="session-loader",
@@ -240,7 +325,7 @@ class SessionScreen(Screen):
         # can't touch unmounted widgets via call_from_thread.
         self.workers.cancel_all()
 
-    def _parse_all(self, paths: list[Path]) -> None:
+    def _parse_all(self, paths: list[Path], epoch: int) -> None:
         """Worker body: parses each session and streams progress.
 
         Runs on a background thread. All UI touches go through
@@ -263,6 +348,8 @@ class SessionScreen(Screen):
           worker can race with screen teardown; dispatching into
           an unmounted screen raises, which would otherwise kill
           the worker silently.
+        - ``epoch`` is threaded through every dispatch so each
+          handler can drop stale callbacks after a reload.
         """
         skipped: list[tuple[Path, Exception]] = []
         fatal: Exception | None = None
@@ -272,13 +359,13 @@ class SessionScreen(Screen):
                     entry = load_session(path)
                 except Exception as exc:
                     skipped.append((path, exc))
-                    self._safe_call(self._on_session_skipped)
+                    self._safe_call(self._on_session_skipped, epoch)
                     continue
-                self._safe_call(self._on_session_parsed, entry)
+                self._safe_call(self._on_session_parsed, epoch, entry)
         except Exception as exc:
             fatal = exc
         finally:
-            self._safe_call(self._finish_loading, skipped, fatal)
+            self._safe_call(self._finish_loading, epoch, skipped, fatal)
 
     def _safe_call(self, fn, *args) -> None:
         """Dispatch ``fn`` to the app thread, swallowing teardown races."""
@@ -287,11 +374,15 @@ class SessionScreen(Screen):
         except Exception:
             pass
 
-    def _on_session_parsed(self, entry: SessionEntry) -> None:
+    def _on_session_parsed(self, epoch: int, entry: SessionEntry) -> None:
+        if epoch != self._load_epoch:
+            return
         self._entries.append(entry)
         self._advance_progress()
 
-    def _on_session_skipped(self) -> None:
+    def _on_session_skipped(self, epoch: int) -> None:
+        if epoch != self._load_epoch:
+            return
         self._advance_progress()
 
     def _advance_progress(self) -> None:
@@ -306,14 +397,20 @@ class SessionScreen(Screen):
 
     def _finish_loading(
         self,
+        epoch: int,
         skipped: list[tuple[Path, Exception]] | None = None,
         fatal: Exception | None = None,
     ) -> None:
+        if epoch != self._load_epoch:
+            return
         sort_sessions(self._entries)
+        preserve = self._pending_cursor_key
+        self._pending_cursor_key = None
         try:
             self.sub_title = self._build_sub_title(skipped or [], fatal)
             table = self.query_one(DataTable)
-            for entry in self._entries:
+            target_idx = 0
+            for i, entry in enumerate(self._entries):
                 table.add_row(
                     short_datetime(entry.started_ts) or "—",
                     str(entry.turn_count),
@@ -323,8 +420,10 @@ class SessionScreen(Screen):
                     (entry.first_user_message or "").replace("\n", " ")[:120],
                     key=str(entry.transcript_path),
                 )
+                if preserve is not None and entry.transcript_path == preserve:
+                    target_idx = i
             if table.row_count:
-                table.cursor_coordinate = Coordinate(0, 0)
+                table.cursor_coordinate = Coordinate(target_idx, 0)
             table.focus()
         except Exception:
             # Screen was popped mid-finish, or something else went
@@ -461,7 +560,8 @@ class SessionScreen(Screen):
                     "Sessions in the selected project, most "
                     "recent first. Enter drills into the full "
                     "turn table; i previews the summary "
-                    "without drilling.\n"
+                    "without drilling; r re-parses every "
+                    "transcript from disk.\n"
                 ),
             )
         )

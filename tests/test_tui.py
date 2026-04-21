@@ -942,6 +942,118 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
+    def test_project_screen_reload_picks_up_new_project(
+        self, tmp_path, monkeypatch
+    ):
+        """``r`` on the project picker rescans ``~/.claude/projects``.
+
+        Mounts the app against a fake tree with two projects,
+        creates a third on disk, presses ``r``, and asserts the
+        new project appears. Also verifies the cursor stays on
+        the project it was sitting on before the reload —
+        rescans shouldn't jump a user who was about to hit Enter.
+        """
+        import asyncio
+        from textual.widgets import DataTable
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import ProjectScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        projects_root.mkdir(parents=True)
+        (projects_root / "-home-user-alpha").mkdir()
+        (projects_root / "-home-user-alpha" / "s1.jsonl").write_text("")
+        (projects_root / "-home-user-beta").mkdir()
+        (projects_root / "-home-user-beta" / "s1.jsonl").write_text("")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, ProjectScreen)
+                table = app.screen.query_one(DataTable)
+                assert table.row_count == 2
+                # Park the cursor on the current top-of-list entry
+                # so we can prove reload preserved it.
+                initial_cursor = table.cursor_row
+                preserved_key = (
+                    app.screen._entries[initial_cursor].project_dir
+                )
+
+                # Add a brand-new project directory on disk.
+                (projects_root / "-home-user-gamma").mkdir()
+                (projects_root / "-home-user-gamma" / "s1.jsonl").write_text("")
+
+                await pilot.press("r")
+                await pilot.pause()
+
+                table = app.screen.query_one(DataTable)
+                assert table.row_count == 3, (
+                    "reload should pick up the new project"
+                )
+                # Cursor should still be on the same project that
+                # was highlighted before the reload.
+                new_cursor = table.cursor_row
+                assert (
+                    app.screen._entries[new_cursor].project_dir
+                    == preserved_key
+                ), "cursor should survive reload"
+                await pilot.press("q")
+
+        asyncio.run(run())
+
+    def test_session_screen_reload_picks_up_new_session(
+        self, tmp_path, monkeypatch
+    ):
+        """``r`` on the session picker re-parses every transcript.
+
+        Drops a new ``.jsonl`` into the project directory after
+        the initial load and verifies that pressing ``r`` causes
+        it to show up in the session list. Also waits for the
+        background parser to finish before asserting — the
+        second parse is async, same as the initial one.
+        """
+        import asyncio
+        import shutil
+        from textual.widgets import DataTable
+        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_usage_tui.tui.screens import SessionScreen
+
+        projects_root = tmp_path / ".claude" / "projects"
+        proj_dir = projects_root / "-tmp-sreload"
+        proj_dir.mkdir(parents=True)
+        shutil.copy(FIXTURES / "basic_session.jsonl", proj_dir / "a.jsonl")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        async def run():
+            app = ClaudeUsageTuiApp()
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, SessionScreen)
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                table = app.screen.query_one(DataTable)
+                assert table.row_count == 1
+
+                # Drop a second session on disk and reload.
+                shutil.copy(
+                    FIXTURES / "basic_session.jsonl", proj_dir / "b.jsonl"
+                )
+                await pilot.press("r")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+
+                table = app.screen.query_one(DataTable)
+                assert table.row_count == 2, (
+                    "reload should pick up the newly-added session"
+                )
+                await pilot.press("q")
+
+        asyncio.run(run())
+
     def test_loader_survives_unreadable_transcript(
         self, tmp_path, monkeypatch
     ):
