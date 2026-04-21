@@ -302,6 +302,173 @@ class TestBuildAgentTree:
         tree = measure_usage.build_agent_tree(transcript, main_parsed, [])
         assert tree == []
 
+    def test_matched_by_agent_id_when_startup_exceeds_tolerance(self, tmp_path):
+        """Subagent with >100 ms startup delay still matches its parent.
+
+        Claude Code writes ``toolUseResult.agentId`` on the parent's
+        tool_result; that id appears in the subagent's filename
+        (``subagents/agent-<id>.jsonl``). The matcher must prefer
+        this deterministic link over timestamp proximity, otherwise
+        the subagent falls back to ``call_turn=None`` and gets
+        dropped from the detail timeline.
+        """
+        transcript, agent_id = _write_agent_id_fixture(
+            tmp_path,
+            sub_start="2026-04-07T10:00:03.500Z",  # 2.5 s after the call
+        )
+
+        start_ts = measure_usage.parse_ts("2026-04-07T10:00:00Z")
+        main_parsed = measure_usage.parse_transcript(transcript, start_ts)
+        sub_infos = measure_usage.find_subagent_transcripts(transcript, start_ts)
+
+        tree = measure_usage.build_agent_tree(transcript, main_parsed, sub_infos)
+
+        assert len(tree) == 1
+        node = tree[0]
+        assert node["call_tool"] == "Skill"
+        assert node["call_description"] == "scrape-explore-site"
+        # call_turn must resolve so the detail view can attach the
+        # subagent as a footnote under the spawning turn.
+        assert node["call_turn"] == 1
+        assert f"agent-{agent_id}.jsonl" in node["path"]
+
+    def test_parser_captures_agent_id_to_tool_use_link(self, tmp_path):
+        """Parser exposes toolUseResult.agentId → tool_use_id mapping."""
+        transcript, agent_id = _write_agent_id_fixture(
+            tmp_path,
+            sub_start="2026-04-07T10:00:03.500Z",
+        )
+        parsed = measure_usage.parse_transcript(transcript)
+        assert parsed["agent_id_to_tool_use"] == {agent_id: "tuse_skill_1"}
+
+    def test_timestamp_fallback_still_works_without_agent_id(self):
+        """Old transcripts without toolUseResult.agentId keep matching.
+
+        The legacy timestamp tolerance (100 ms) has to stay wired up
+        for transcripts recorded before Claude Code started emitting
+        the deterministic agentId link.
+        """
+        transcript = str(FIXTURES / "with_subagents.jsonl")
+        start_ts = measure_usage.parse_ts("2026-04-07T10:00:00Z")
+        main_parsed = measure_usage.parse_transcript(transcript, start_ts)
+        sub_infos = measure_usage.find_subagent_transcripts(transcript, start_ts)
+
+        # Sanity: fixture indeed has no agentId links, so the test
+        # exercises the fallback path rather than duplicating the
+        # agentId-matching case above.
+        assert main_parsed["agent_id_to_tool_use"] == {}
+
+        tree = measure_usage.build_agent_tree(transcript, main_parsed, sub_infos)
+        assert len(tree) == 1
+        assert tree[0]["call_tool"] == "Agent"
+        assert tree[0]["call_turn"] == 1
+
+
+def _write_agent_id_fixture(tmp_path, sub_start):
+    """Build a minimal forked-Skill transcript with an agentId link.
+
+    Main session has one Skill tool_use (``tuse_skill_1``) whose
+    tool_result carries ``toolUseResult.agentId`` pointing at a
+    subagent transcript in ``subagents/agent-<id>.jsonl``. The
+    subagent's first entry timestamp is controlled by ``sub_start``
+    so callers can pin a delay that exceeds the 100 ms tolerance.
+    """
+    agent_id = "a8c2fcd336f0e15e2"
+    transcript = tmp_path / "session.jsonl"
+    session_dir = tmp_path / "session"
+    subagents_dir = session_dir / "subagents"
+    subagents_dir.mkdir(parents=True)
+
+    entries = [
+        {
+            "type": "user",
+            "message": {"role": "user", "content": "kick off"},
+            "uuid": "u1",
+            "timestamp": "2026-04-07T10:00:00Z",
+            "sessionId": "s",
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "model": "claude-sonnet-4-6",
+                "content": [{
+                    "type": "tool_use",
+                    "id": "tuse_skill_1",
+                    "name": "Skill",
+                    "input": {"skill": "scrape-explore-site"},
+                }],
+                "usage": {
+                    "input_tokens": 10, "output_tokens": 5,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 100,
+                },
+            },
+            "uuid": "a1",
+            "timestamp": "2026-04-07T10:00:01.000Z",
+            "sessionId": "s",
+        },
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "tuse_skill_1",
+                    "content": "done",
+                }],
+            },
+            "uuid": "u2",
+            "timestamp": "2026-04-07T10:00:35Z",
+            "sessionId": "s",
+            "toolUseResult": {
+                "success": True,
+                "commandName": "scrape-explore-site",
+                "status": "forked",
+                "agentId": agent_id,
+            },
+        },
+    ]
+    with transcript.open("w") as f:
+        for e in entries:
+            f.write(json.dumps(e) + "\n")
+
+    sub_path = subagents_dir / f"agent-{agent_id}.jsonl"
+    sub_entries = [
+        {
+            "type": "user",
+            "message": {"role": "user", "content": "prompt"},
+            "uuid": "su1",
+            "timestamp": sub_start,
+            "sessionId": "sub",
+            "isSidechain": True,
+            "agentId": agent_id,
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "model": "claude-sonnet-4-6",
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": {
+                    "input_tokens": 20, "output_tokens": 10,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 50,
+                },
+            },
+            "uuid": "sa1",
+            "timestamp": "2026-04-07T10:00:30Z",
+            "sessionId": "sub",
+            "isSidechain": True,
+        },
+    ]
+    with sub_path.open("w") as f:
+        for e in sub_entries:
+            f.write(json.dumps(e) + "\n")
+    sub_meta = subagents_dir / f"agent-{agent_id}.meta.json"
+    sub_meta.write_text(json.dumps({"agentType": "general-purpose"}))
+    return str(transcript), agent_id
+
 
 class TestFormatTree:
     def test_has_header(self):
