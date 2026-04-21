@@ -147,11 +147,23 @@ def turn_own_seq(row):
 
     Shrinking own_seq requires changing the turn itself: pick a cheaper
     model, write less, call smaller tools, trim tool results.
+
+    When the row carries per-tier cache_w split (``cache_w_5m`` /
+    ``cache_w_1h``), prices each tier at its own rate (1.25x and 2.0x).
+    Falls back to a flat 1.25x on aggregate ``cache_w`` when tier data
+    isn't available so callers that hand-build rows without tier
+    splits still get a sensible number.
     """
     scale = _model_cost_scale(row.get("model", "unknown"))
+    cache_w_5m = row.get("cache_w_5m", 0)
+    cache_w_1h = row.get("cache_w_1h", 0)
+    if cache_w_5m or cache_w_1h:
+        cache_w_cost = cache_w_5m * 1.25 + cache_w_1h * 2.0
+    else:
+        cache_w_cost = row.get("cache_w", 0) * 1.25
     seq = (
         row.get("in_tokens", 0) * 1.0
-        + row.get("cache_w", 0) * 1.25
+        + cache_w_cost
         + row.get("out_tokens", 0) * 5.0
     )
     return seq * scale
