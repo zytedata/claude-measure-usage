@@ -1392,6 +1392,49 @@ class TestMsgIdDedupe:
         # Second turn has the text preview.
         assert result["turns"][1]["text_preview"] == "done"
 
+    def test_split_turn_takes_max_output_tokens(self, tmp_path):
+        """Within a split turn, output_tokens is written incrementally:
+        early content-block entries carry a partial count and only the
+        final entry carries the complete total, while input/cache are
+        identical across the split. The turn must be booked with the
+        complete (max) output, not the first (partial) entry — otherwise
+        summed output under-reports against the billed total while
+        input/cache stay exact."""
+        base = {
+            "input_tokens": 1961,
+            "cache_creation_input_tokens": 6320,
+            "cache_read_input_tokens": 0,
+        }
+        entries = [
+            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "text", "text": "working"}],
+                            {**base, "output_tokens": 4}),
+            self._assistant("u2", "msg_A", "2026-04-07T10:00:01Z",
+                            [{"type": "tool_use", "id": "t1", "name": "Bash",
+                              "input": {"command": "ls"}}],
+                            {**base, "output_tokens": 4}),
+            self._assistant("u3", "msg_A", "2026-04-07T10:00:02Z",
+                            [{"type": "tool_use", "id": "t2", "name": "Bash",
+                              "input": {"command": "pwd"}}],
+                            {**base, "output_tokens": 175}),
+        ]
+        path = self._write(tmp_path, entries)
+
+        result = measure_usage.parse_transcript(path)
+        # Still one logical turn.
+        assert result["turn_count"] == 1
+        assert len(result["turns"]) == 1
+        tokens = result["tokens_by_model"]["claude-sonnet-4-6"]
+        # Complete output (175), not the first partial entry (4) nor the
+        # sum of the repeated entries (183).
+        assert tokens["output_tokens"] == 175
+        # Input/cache are booked once and unchanged by the merge.
+        assert tokens["input_tokens"] == 1961
+        assert tokens["cache_creation_input_tokens"] == 6320
+        assert tokens["cache_read_input_tokens"] == 0
+        # The turn row reflects the complete output too.
+        assert result["turns"][0]["out_tokens"] == 175
+
     def test_system_entry_between_split_halves_still_dedupes(self, tmp_path):
         """A ``system``-type entry interleaved between the two halves of a
         split turn must not break msg-id dedupe."""
