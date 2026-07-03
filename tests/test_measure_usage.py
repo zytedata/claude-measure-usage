@@ -895,6 +895,19 @@ class TestFormatMetrics:
         assert "Subagents" not in text  # 0 subagents
         assert "By model" not in text  # single model
 
+    def test_output_estimated_note(self):
+        text = measure_usage.format_metrics(self._make_metrics(
+            output_estimated={"turn_count": 3, "added_tokens": 26557},
+        ))
+        assert "3 turns missing final usage" in text
+        assert "≈26.6K estimated" in text
+
+    def test_no_output_estimated_note_when_clean(self):
+        text = measure_usage.format_metrics(self._make_metrics(
+            output_estimated={"turn_count": 0, "added_tokens": 0},
+        ))
+        assert "missing final usage" not in text
+
     def test_tool_costs_displayed(self):
         text = measure_usage.format_metrics(self._make_metrics(
             tool_costs={
@@ -1492,6 +1505,172 @@ class TestMsgIdDedupe:
         # Usage counted exactly once.
         tokens = result["tokens_by_model"]["claude-sonnet-4-6"]
         assert tokens["output_tokens"] == 500
+
+
+class TestMissingFinalUsage:
+    """Some turns never get their final usage written to the transcript:
+    no entry of the message-id group carries a stop_reason, and even the
+    max output_tokens across the split is a stale early-stream partial
+    (observed in subagent transcripts — e.g. a 42KB Write booked as 2
+    output tokens). The parser detects these groups, estimates their
+    real output from content length using a chars-per-token ratio
+    calibrated on the same transcript's complete turns, and flags the
+    affected rows so renderers can mark the numbers approximate."""
+
+    def _write(self, tmp_path, entries):
+        path = tmp_path / "missing_final.jsonl"
+        path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+        return str(path)
+
+    def _assistant(self, uuid, msg_id, ts, content, usage,
+                   stop=None, model="claude-sonnet-4-6"):
+        return {
+            "type": "assistant",
+            "uuid": uuid,
+            "timestamp": ts,
+            "sessionId": "s1",
+            "message": {
+                "role": "assistant",
+                "id": msg_id,
+                "model": model,
+                "content": content,
+                "stop_reason": stop,
+                "usage": usage,
+            },
+        }
+
+    def _usage(self, out):
+        return {
+            "input_tokens": 10,
+            "output_tokens": out,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 100,
+        }
+
+    def test_estimates_output_with_same_model_calibration(self, tmp_path):
+        # Complete turn: 3000 chars of content for 1000 billed output
+        # tokens -> calibrates the ratio at 3.0 chars/token.
+        # Incomplete turn (no stop_reason anywhere in the group): 3000
+        # chars but a stale partial of 2 output tokens -> estimated at
+        # 3000 / 3.0 = 1000.
+        entries = [
+            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "text", "text": "y" * 3000}],
+                            self._usage(1000), stop="end_turn"),
+            self._assistant("u2", "msg_B", "2026-04-07T10:00:05Z",
+                            [{"type": "text", "text": "x" * 1000}],
+                            self._usage(2)),
+            self._assistant("u3", "msg_B", "2026-04-07T10:00:08Z",
+                            [{"type": "text", "text": "x" * 2000}],
+                            self._usage(2)),
+        ]
+        result = measure_usage.parse_transcript(self._write(tmp_path, entries))
+
+        assert result["turn_count"] == 2
+        tokens = result["tokens_by_model"]["claude-sonnet-4-6"]
+        assert tokens["output_tokens"] == 2000  # 1000 real + 1000 estimated
+        # Input/cache stay exact — only output is estimated.
+        assert tokens["input_tokens"] == 20
+        assert tokens["cache_read_input_tokens"] == 200
+        incomplete = result["turns"][1]
+        assert incomplete["out_tokens"] == 1000
+        assert incomplete["out_estimated"] is True
+        assert "out_estimated" not in result["turns"][0]
+        assert result["output_estimated"] == {"turn_count": 1, "added_tokens": 998}
+
+    def test_fallback_ratio_when_no_complete_turns(self, tmp_path):
+        # No complete turns to calibrate on -> the measured fallback of
+        # 2.6 chars/token applies: 2600 chars -> 1000 tokens.
+        entries = [
+            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "text", "text": "x" * 2600}],
+                            self._usage(2)),
+        ]
+        result = measure_usage.parse_transcript(self._write(tmp_path, entries))
+
+        tokens = result["tokens_by_model"]["claude-sonnet-4-6"]
+        assert tokens["output_tokens"] == 1000
+        assert result["turns"][0]["out_estimated"] is True
+        assert result["output_estimated"] == {"turn_count": 1, "added_tokens": 998}
+
+    def test_cross_model_calibration_when_own_model_lacks_data(self, tmp_path):
+        # Sonnet calibrates at 3.0 chars/token; the incomplete Haiku
+        # turn has no same-model data so the cross-model ratio applies.
+        entries = [
+            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "text", "text": "y" * 3000}],
+                            self._usage(1000), stop="end_turn"),
+            self._assistant("u2", "msg_B", "2026-04-07T10:00:05Z",
+                            [{"type": "text", "text": "x" * 300}],
+                            self._usage(1), model="claude-haiku-4-5"),
+        ]
+        result = measure_usage.parse_transcript(self._write(tmp_path, entries))
+
+        assert result["tokens_by_model"]["claude-haiku-4-5"]["output_tokens"] == 100
+
+    def test_booked_partial_larger_than_estimate_is_kept(self, tmp_path):
+        # The booked count is a true lower bound from the API; when the
+        # content-based estimate comes out smaller, the booked value
+        # stands. The row is still flagged — its output is unverified.
+        entries = [
+            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "text", "text": "x" * 260}],
+                            self._usage(500)),
+        ]
+        result = measure_usage.parse_transcript(self._write(tmp_path, entries))
+
+        tokens = result["tokens_by_model"]["claude-sonnet-4-6"]
+        assert tokens["output_tokens"] == 500
+        assert result["turns"][0]["out_tokens"] == 500
+        assert result["turns"][0]["out_estimated"] is True
+        assert result["output_estimated"] == {"turn_count": 1, "added_tokens": 0}
+
+    def test_complete_turn_not_flagged_or_estimated(self, tmp_path):
+        # A stop_reason on any entry of the group means the final usage
+        # was written — large content must not trigger estimation.
+        entries = [
+            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "text", "text": "x" * 50000}],
+                            self._usage(30), stop="tool_use"),
+        ]
+        result = measure_usage.parse_transcript(self._write(tmp_path, entries))
+
+        tokens = result["tokens_by_model"]["claude-sonnet-4-6"]
+        assert tokens["output_tokens"] == 30
+        assert "out_estimated" not in result["turns"][0]
+        assert result["output_estimated"] == {"turn_count": 0, "added_tokens": 0}
+
+    def test_tool_use_input_counts_toward_estimate(self, tmp_path):
+        # The missing output usually lives in a big tool_use input
+        # (e.g. Write file contents), which is serialized JSON on the
+        # wire — its chars must feed the estimate.
+        file_text = "z" * 2600
+        input_chars = len(json.dumps({"content": file_text}, ensure_ascii=False))
+        entries = [
+            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "tool_use", "id": "t1", "name": "Write",
+                              "input": {"content": file_text}}],
+                            self._usage(2)),
+        ]
+        result = measure_usage.parse_transcript(self._write(tmp_path, entries))
+
+        expected = int(input_chars / 2.6)
+        assert result["turns"][0]["out_tokens"] == expected
+        tokens = result["tokens_by_model"]["claude-sonnet-4-6"]
+        assert tokens["output_tokens"] == expected
+
+    def test_synthetic_error_entries_not_estimated(self, tmp_path):
+        # API-error placeholders (<synthetic> model) never billed
+        # anything; their error text must not produce estimated tokens.
+        entries = [
+            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
+                            [{"type": "text", "text": "e" * 5000}],
+                            self._usage(0), model="<synthetic>"),
+        ]
+        result = measure_usage.parse_transcript(self._write(tmp_path, entries))
+
+        assert result["tokens_by_model"]["<synthetic>"]["output_tokens"] == 0
+        assert result["output_estimated"] == {"turn_count": 0, "added_tokens": 0}
 
 
 class TestNonturnRows:
