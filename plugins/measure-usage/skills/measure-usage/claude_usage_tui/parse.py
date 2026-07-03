@@ -216,6 +216,12 @@ class _TranscriptParser:
         self._tool_use_id_to_invoc = {}
         self._cur_turn = None
         self._cur_msg_id = None
+        # Per-token-field maxima already accumulated for the current
+        # turn, plus the model they were booked under. Lets
+        # _merge_continuation_usage add only the positive delta when a
+        # later split entry carries a larger (complete) output_tokens.
+        self._cur_counted = None
+        self._cur_turn_model = "unknown"
         # Maps the spawned subagent's agentId (as written by
         # Claude Code in toolUseResult) to the tool_use_id of the
         # Agent/Skill call that spawned it. Lets build_agent_tree
@@ -265,10 +271,18 @@ class _TranscriptParser:
             # the first entry for a given id counts as a new turn.
             msg_id = msg.get("id")
             if msg_id and msg_id == self._cur_msg_id:
-                # Continuation of the current turn: keep _cur_turn,
-                # skip usage accumulation and turn_count increment.
-                # Extend end_ts so the renderer can measure the
+                # Continuation of the current turn: keep _cur_turn, don't
+                # increment turn_count. These split entries repeat the
+                # turn's input/cache usage, but output_tokens is written
+                # incrementally — early blocks (thinking, text) carry a
+                # partial count and only the final entry carries the
+                # complete total. Raise each counted field to its max so
+                # the turn reflects its full output instead of the first
+                # (partial) entry; otherwise summed output under-reports
+                # against the billed total while input/cache stay exact.
+                # Also extend end_ts so the renderer can measure the
                 # model's generation duration across split entries.
+                self._merge_continuation_usage(usage)
                 if self._cur_turn is not None and self.entry_ts is not None:
                     prior = self._cur_turn.get("end_ts") or 0
                     self._cur_turn["end_ts"] = max(prior, self.entry_ts)
@@ -279,6 +293,8 @@ class _TranscriptParser:
                 self._cur_turn = self._start_turn_row(usage)
                 self.turns.append(self._cur_turn)
                 self.rows.append(self._cur_turn)
+                self._cur_turn_model = self.model
+                self._cur_counted = self._snapshot_counted(usage)
                 self._cur_msg_id = msg_id
         elif not is_assistant:
             # Non-assistant transcript entries (user messages, system
@@ -480,6 +496,63 @@ class _TranscriptParser:
         for key, val in usage.get("server_tool_use", {}).items():
             if isinstance(val, (int, float)):
                 self.server_tool_use[key] = self.server_tool_use.get(key, 0) + val
+
+    @staticmethod
+    def _snapshot_counted(usage):
+        """Capture the token-field values just booked for a new turn.
+
+        Mirrors what _accumulate_usage added (TOKEN_KEYS plus the cache
+        tiers nested under ``cache_creation``) so a later split entry
+        sharing this turn's message id can be reconciled against it.
+        """
+        counted = {key: (usage.get(key, 0) or 0) for key in TOKEN_KEYS}
+        cache_creation = usage.get("cache_creation", {}) or {}
+        for tier_key in CACHE_TIER_KEYS:
+            counted[tier_key] = cache_creation.get(tier_key, 0) or 0
+        return counted
+
+    def _merge_continuation_usage(self, usage):
+        """Fold a same-message-id continuation entry into the current turn.
+
+        Claude Code writes one JSONL entry per content block of a single
+        assistant turn, all sharing a message id. They repeat the turn's
+        input/cache usage verbatim, but ``output_tokens`` is filled in
+        incrementally: early blocks carry a partial count and only the
+        final entry carries the complete total. Booking just the first
+        entry (the prior behaviour) therefore under-counts output while
+        leaving input/cache exact. Raise each counted field to the max
+        seen and add the positive delta to the running totals and the
+        turn row, so the turn reflects its complete usage.
+        """
+        counted = self._cur_counted
+        bucket = self.tokens_by_model.get(self._cur_turn_model)
+        if counted is None or bucket is None:
+            return
+        grew = False
+        for key in TOKEN_KEYS:
+            new = usage.get(key, 0) or 0
+            if new > counted[key]:
+                bucket[key] += new - counted[key]
+                counted[key] = new
+                grew = True
+        cache_creation = usage.get("cache_creation", {}) or {}
+        for tier_key in CACHE_TIER_KEYS:
+            new = cache_creation.get(tier_key, 0) or 0
+            if new > counted.get(tier_key, 0):
+                bucket[tier_key] = bucket.get(tier_key, 0) + (new - counted[tier_key])
+                counted[tier_key] = new
+                grew = True
+        if not grew or self._cur_turn is None:
+            return
+        row = self._cur_turn
+        row["in_tokens"] = counted["input_tokens"]
+        row["out_tokens"] = counted["output_tokens"]
+        row["cache_r"] = counted["cache_read_input_tokens"]
+        row["cache_w"] = counted["cache_creation_input_tokens"]
+        row["cache_w_5m"] = counted["ephemeral_5m_input_tokens"]
+        row["cache_w_1h"] = counted["ephemeral_1h_input_tokens"]
+        row["ctx"] = row["in_tokens"] + row["cache_r"] + row["cache_w"]
+        self.peak_context = max(self.peak_context, row["ctx"])
 
     def _handle_tool_use(self, block):
         """Handle a tool_use content block."""
