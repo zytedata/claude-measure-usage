@@ -17,6 +17,9 @@ from .parse import (
 # across models; only the base input price differs.
 # Checked in order — more specific patterns first.
 _MODEL_SCALES = [
+    # Fable tier ($10/MTok input)
+    ("fable", 10 / 3),       # claude-fable-5
+    ("mythos", 10 / 3),      # claude-mythos-5 — same model/pricing as Fable
     # Legacy Opus ($15/MTok input)
     ("opus-4-1", 5.0),       # claude-opus-4-1-20250414
     ("3-opus", 5.0),          # claude-3-opus-20240229

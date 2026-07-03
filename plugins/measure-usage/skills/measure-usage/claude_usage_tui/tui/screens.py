@@ -1712,12 +1712,15 @@ def _model_color(model: str) -> str | None:
 
     Uses ANSI-named colors so the result respects whatever
     terminal theme the user runs — cyan / red / green all adapt
-    to both dark and light backgrounds. Opus = red (most
-    expensive), Sonnet = no color (baseline), Haiku = green
-    (cheapest). Unknown models return ``None`` → no coloring.
+    to both dark and light backgrounds. Fable = magenta (above
+    Opus pricing), Opus = red (expensive), Sonnet = no color
+    (baseline), Haiku = green (cheapest). Unknown models return
+    ``None`` → no coloring.
     """
     if not model:
         return None
+    if "fable" in model or "mythos" in model:
+        return "magenta"
     if "opus" in model:
         return "red"
     if "haiku" in model:

@@ -390,6 +390,15 @@ class TestCellStyling:
         assert isinstance(cells[9], Text)
         assert "green" in str(cells[9].style)
 
+    def test_turn_row_fable_model_colored_magenta(self):
+        from rich.text import Text
+        from claude_usage_tui.tui.screens import _cells_for
+
+        row = self._mk("turn", model="claude-fable-5")
+        cells = _cells_for(row)
+        assert isinstance(cells[9], Text)
+        assert "magenta" in str(cells[9].style)
+
     def test_subagent_row_colored_cyan(self):
         from rich.text import Text
         from claude_usage_tui.tui.screens import _cells_for
@@ -749,6 +758,9 @@ class TestShortDatetime:
 
 
 class TestTinyModel:
+    def test_fable(self):
+        assert tiny_model("claude-fable-5") == "fable"
+
     def test_opus(self):
         assert tiny_model("claude-opus-4-6") == "opus"
 
