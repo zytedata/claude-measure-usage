@@ -51,7 +51,7 @@ def tiny_model(model: str) -> str:
     """
     if not model:
         return ""
-    for family in ("opus", "sonnet", "haiku"):
+    for family in ("fable", "opus", "sonnet", "haiku"):
         if family in model:
             return family
     return model
