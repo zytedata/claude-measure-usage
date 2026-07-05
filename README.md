@@ -124,9 +124,18 @@ price, consistent across Claude models):
 | Cache write (1h) | 2x |
 | Output | 5x |
 
-Model scaling: Haiku 0.33x, Sonnet 1x, Opus 1.67x. So 1000 output
-tokens on Opus = 1000 × 5 × 1.67 = 8,350 Sonnet input-equivalent
-tokens. Legacy models are supported at their original prices.
+Model scaling (each model's input price relative to Sonnet's $3/M):
+
+| Model | Scale | Input price |
+|-------|-------|-------------|
+| Haiku | 0.33x | $1/M |
+| Sonnet | 1x | $3/M |
+| Opus | 1.67x | $5/M |
+| Fable / Mythos | 3.33x | $10/M |
+
+So 1000 output tokens on Opus = 1000 × 5 × 1.67 = 8,350 Sonnet
+input-equivalent tokens. Legacy models (Opus 4.1 and earlier, Haiku 3.5
+and earlier) are supported at their original prices.
 
 ### `cost = own + carry`, and `caused`
 
