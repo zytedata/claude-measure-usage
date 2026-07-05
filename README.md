@@ -198,3 +198,21 @@ immediately:
 ```bash
 claude --plugin-dir /path/to/claude-measure-usage/plugins/measure-usage
 ```
+
+## Running the tests
+
+One command runs the suite on every supported Python (3.10–3.14);
+[tox-uv](https://github.com/tox-dev/tox-uv) provisions the
+environments through uv, fetching any missing interpreter:
+
+```bash
+uvx --with tox-uv tox
+```
+
+For quick iteration on a single Python:
+
+```bash
+uv run --extra dev pytest
+```
+
+CI runs the same tox environments on every pull request.
