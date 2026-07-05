@@ -52,25 +52,14 @@ projects stay responsive while loading.
 **Session detail** — the heart of the app: one row per assistant turn,
 with a cost decomposition per turn.
 
-```
-┌─ 2026-04-12 09:14  ~/svn/measure-usage ────── 8 turns · 92.4K ─┐
-│ #      when   took     cost    own  carry  caused  what          ctx │
-│ ─────  ────   ────   ──────  ─────  ─────  ──────  ────────────  ─── │
-│ 1      0:04          20.9K   18.4K   2.5K   +105K  (startup) [S…  23K │
-│ 2      0:08    4s     7.8K    4.0K   3.9K    +12K  Starting Sta…  24K │
-│ 3      0:14    6s    12.0K    8.0K   4.0K    +31K  Bash "BASE=b…  26K │
-│        0:27                                        [user] https…      │
-│ 4      0:30  1m34s  180.4K  176.2K   4.2K    +1K   Bash "uv run…  27K │
-│  ↳a3f2 0:30  1m10s  180.0K                         [Agent] "inv…  52K │
-│ 5      2:08    3s     7.0K    2.5K   4.5K    +9K   The site blo…  28K │
-├───────────────────────────────────────────────────────────────────────┤
-│  ↵ details  s sort  / filter  i summary  r reload  esc back  ? help   │
-└───────────────────────────────────────────────────────────────────────┘
-```
+![Session detail screen: per-turn cost table with subagent rows](docs/session-detail.svg)
 
-Further right (scroll with `←`/`→` on narrow terminals) the table also
-shows the raw transcript counts per turn: `model`, `in`, `out`,
-`cache_r`, `cache_w` — exactly what the API reported, unnormalized.
+The dimmed `↳` rows under turn 1 are subagents — here, two parallel
+Explore agents that ran on a different model than the main session;
+`↵` on one drills into its own per-turn table. The columns right of
+`what` hold the raw transcript counts (`model`, `in`, `out`, `cache_r`,
+`cache_w`) — exactly what the API reported, unnormalized. On narrow
+terminals the table scrolls horizontally with `←`/`→`.
 
 Three kinds of rows share the table:
 
