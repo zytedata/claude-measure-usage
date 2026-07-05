@@ -579,9 +579,8 @@ class SessionDetailScreen(Screen):
 
     ``Enter`` on a turn row opens :class:`TurnDetailModal`;
     ``Enter`` on a subagent row drills directly into a new
-    :class:`SessionDetailScreen` for that subagent (stack grows).
-    Non-turn rows are inert for now (a payload modal is a later
-    commit).
+    :class:`SessionDetailScreen` for that subagent (stack grows);
+    ``Enter`` on a non-turn row opens :class:`NonturnDetailModal`.
     """
 
     BINDINGS = [
