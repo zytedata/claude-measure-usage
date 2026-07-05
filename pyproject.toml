@@ -7,6 +7,8 @@ name = "claude-usage-tui"
 version = "0.0.1"
 description = "Interactive TUI for debugging token usage of Claude Code sessions"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "Mikhail Korobov" }]
 keywords = ["claude", "claude-code", "tokens", "usage", "tui", "textual"]
