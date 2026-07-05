@@ -18,4 +18,4 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uvx --with tox-uv tox -e py${{ matrix.python-version }}
+      - run: uvx --with tox-uv tox -e "py$(tr -d . <<< '${{ matrix.python-version }}')"
