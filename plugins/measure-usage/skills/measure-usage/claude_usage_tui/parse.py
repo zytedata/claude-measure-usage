@@ -30,9 +30,38 @@ SUBAGENT_MATCH_TOLERANCE_S = 0.1  # 100ms
 # its own to calibrate against.
 _OUT_CHARS_PER_TOKEN_FALLBACK = 2.6
 
-# Minimum output tokens of complete-turn calibration data before the
-# measured chars-per-token ratio is trusted over the fallback.
+# Minimum calibration data before a measured chars-per-token ratio is
+# trusted over the next link in the fallback chain. The token floor
+# alone isn't enough — a single mid-size turn can clear it, and one
+# unusually dense turn would then inflate every estimate in the file
+# (booked partials are lower bounds, so the failure direction is
+# over-counting).
 _CALIBRATION_MIN_OUT_TOKENS = 200
+_CALIBRATION_MIN_TURNS = 3
+
+# Calibration is pooled by a turn's dominant content kind: tool_use
+# input JSON tokenizes at a different density than prose/thinking,
+# and the turns being estimated are usually tool-dominated while the
+# complete turns feeding calibration are usually prose — one blended
+# ratio can systematically miss exactly where it gets applied.
+_POOL_TEXT = "text"
+_POOL_TOOL = "tool"
+
+# Preferred over pooled ratios when a transcript has enough complete
+# turns: a per-model least-squares fit
+#     output_tokens ≈ a·text_chars + b·tool_chars + c
+# The per-turn constant c (~80–100 tokens in practice) absorbs fixed
+# overhead that otherwise depresses the apparent chars-per-token of
+# the many small complete turns — the reason plain ratios overshoot
+# on the large tool-heavy turns that dominate the missing set. On the
+# PR sample sessions the fit reconciles billed output to ±0.5% where
+# ratios landed at +2%.
+_OUT_FIT_MIN_TURNS = 8
+# Reject degenerate fits: marginal chars-per-token outside these
+# bounds, or a negative/huge per-turn constant, means the system was
+# ill-conditioned — fall back to pooled ratios instead.
+_OUT_FIT_RATIO_BOUNDS = (1.0, 10.0)
+_OUT_FIT_CONST_BOUNDS = (0.0, 1000.0)
 
 # Non-turn entry types dropped from the per-turn timeline.
 # All pure client-side bookkeeping with no UX or debugging value:
@@ -63,29 +92,89 @@ def _estimate_tokens(text):
 
 
 def _output_content_chars(content):
-    """Chars of model-generated content in an assistant entry.
+    """(prose_chars, tool_chars) of model output in an assistant entry.
 
-    Counts what output_tokens bills for — text, thinking, and
-    tool_use input JSON. Non-generated fields (thinking signatures,
+    Counts what output_tokens bills for, split by calibration pool:
+    prose is text + thinking, tool is tool_use input JSON. The two
+    tokenize at different densities, so they're kept apart for the
+    ratio calibration. Non-generated fields (thinking signatures,
     redacted blocks) are excluded.
     """
     if not isinstance(content, list):
-        return 0
-    chars = 0
+        return 0, 0
+    text_chars = 0
+    tool_chars = 0
     for block in content:
         if not isinstance(block, dict):
             continue
         btype = block.get("type")
         if btype == "text":
-            chars += len(block.get("text") or "")
+            text_chars += len(block.get("text") or "")
         elif btype == "thinking":
-            chars += len(block.get("thinking") or "")
+            text_chars += len(block.get("thinking") or "")
         elif btype == "tool_use":
             try:
-                chars += len(json.dumps(block.get("input") or {}, ensure_ascii=False))
+                tool_chars += len(
+                    json.dumps(block.get("input") or {}, ensure_ascii=False)
+                )
             except (TypeError, ValueError):
                 pass
-    return chars
+    return text_chars, tool_chars
+
+
+def _measured_ratio(calib_entries):
+    """Chars-per-token ratio over calibration entries, or None.
+
+    Returns None when the pooled data is too thin to trust — both a
+    token floor and a turn floor apply (see the constants above).
+    """
+    chars = sum(e[0] for e in calib_entries)
+    out = sum(e[1] for e in calib_entries)
+    turns = sum(e[2] for e in calib_entries)
+    if out >= _CALIBRATION_MIN_OUT_TOKENS and turns >= _CALIBRATION_MIN_TURNS:
+        return chars / out
+    return None
+
+
+def _fit_output_model(samples):
+    """Least-squares (a, b, c) for out ≈ a·text + b·tool + c, or None.
+
+    ``samples`` is a list of (text_chars, tool_chars, output_tokens)
+    complete turns. Solves the 3-parameter normal equations by
+    Gaussian elimination; returns None when there are too few turns,
+    the system is singular (e.g. no tool content anywhere), or the
+    solution fails the sanity bounds above.
+    """
+    if len(samples) < _OUT_FIT_MIN_TURNS:
+        return None
+    sxx = [[0.0] * 3 for _ in range(3)]
+    sxy = [0.0] * 3
+    for text, tool, out in samples:
+        x = (float(text), float(tool), 1.0)
+        for i in range(3):
+            sxy[i] += x[i] * out
+            for j in range(3):
+                sxx[i][j] += x[i] * x[j]
+    m = [sxx[i] + [sxy[i]] for i in range(3)]
+    for col in range(3):
+        piv = max(range(col, 3), key=lambda r: abs(m[r][col]))
+        if abs(m[piv][col]) < 1e-9:
+            return None
+        m[col], m[piv] = m[piv], m[col]
+        for r in range(3):
+            if r != col:
+                f = m[r][col] / m[col][col]
+                for k in range(col, 4):
+                    m[r][k] -= f * m[col][k]
+    a, b, c = (m[i][3] / m[i][i] for i in range(3))
+    lo, hi = _OUT_FIT_RATIO_BOUNDS
+    for coef in (a, b):
+        if coef <= 0 or not (lo <= 1 / coef <= hi):
+            return None
+    c_lo, c_hi = _OUT_FIT_CONST_BOUNDS
+    if not (c_lo <= c <= c_hi):
+        return None
+    return a, b, c
 
 
 def parse_ts(ts_str):
@@ -272,9 +361,15 @@ class _TranscriptParser:
         # complete turns, and estimate the missing output at result()
         # time.
         self._cur_stop_seen = False
-        self._cur_out_chars = 0
-        self._calibration = {}  # model -> [content_chars, output_tokens]
-        self._missing_final = []  # (row, model, chars) awaiting estimation
+        self._cur_out_text_chars = 0
+        self._cur_out_tool_chars = 0
+        # (model, pool) -> [content_chars, output_tokens, turns]
+        self._calibration = {}
+        # model -> [(text_chars, tool_chars, output_tokens), ...] of
+        # complete turns, feeding the least-squares fit.
+        self._fit_samples = {}
+        # (row, model, text_chars, tool_chars) awaiting estimation
+        self._missing_final = []
         self._finalized = False
         self.output_estimated = {"turn_count": 0, "added_tokens": 0}
         # Maps the spawned subagent's agentId (as written by
@@ -346,7 +441,9 @@ class _TranscriptParser:
                 self._cur_stop_seen = (
                     self._cur_stop_seen or msg.get("stop_reason") is not None
                 )
-                self._cur_out_chars += _output_content_chars(msg.get("content"))
+                text_chars, tool_chars = _output_content_chars(msg.get("content"))
+                self._cur_out_text_chars += text_chars
+                self._cur_out_tool_chars += tool_chars
             else:
                 self._close_turn()
                 self.turn_count += 1
@@ -359,7 +456,9 @@ class _TranscriptParser:
                 self._cur_counted = self._snapshot_counted(usage)
                 self._cur_msg_id = msg_id
                 self._cur_stop_seen = msg.get("stop_reason") is not None
-                self._cur_out_chars = _output_content_chars(msg.get("content"))
+                self._cur_out_text_chars, self._cur_out_tool_chars = (
+                    _output_content_chars(msg.get("content"))
+                )
         elif not is_assistant:
             # Non-assistant transcript entries (user messages, system
             # events, permission mode changes, attachments, etc.) do
@@ -634,43 +733,74 @@ class _TranscriptParser:
         if row is None or self._cur_counted is None:
             return
         model = self._cur_turn_model
-        chars = self._cur_out_chars
+        text_chars = self._cur_out_text_chars
+        tool_chars = self._cur_out_tool_chars
+        chars = text_chars + tool_chars
         if self._cur_stop_seen:
             out = self._cur_counted.get("output_tokens", 0)
             if out > 0 and chars > 0:
-                calib = self._calibration.setdefault(model, [0, 0])
+                pool = _POOL_TOOL if tool_chars > text_chars else _POOL_TEXT
+                calib = self._calibration.setdefault((model, pool), [0, 0, 0])
                 calib[0] += chars
                 calib[1] += out
+                calib[2] += 1
+                self._fit_samples.setdefault(model, []).append(
+                    (text_chars, tool_chars, out)
+                )
         elif model != "<synthetic>":
-            self._missing_final.append((row, model, chars))
+            self._missing_final.append((row, model, text_chars, tool_chars))
+
+    def _pick_ratio(self, model, pool):
+        """Chars-per-token ratio for a flagged turn, most-specific first.
+
+        Same model and pool, then same model blended, then the same
+        pool across models, then everything blended; each candidate
+        must clear the minimum-data floors before it's trusted. The
+        measured fallback constant closes the chain.
+        """
+        cal = self._calibration
+        groups = (
+            [v for (m, p), v in cal.items() if m == model and p == pool],
+            [v for (m, _), v in cal.items() if m == model],
+            [v for (_, p), v in cal.items() if p == pool],
+            list(cal.values()),
+        )
+        for entries in groups:
+            ratio = _measured_ratio(entries)
+            if ratio:
+                return ratio
+        return _OUT_CHARS_PER_TOKEN_FALLBACK
 
     def _finalize(self):
         """Estimate output for turns whose final usage never landed.
 
-        Ratio preference: same-model calibration from this
-        transcript's complete turns, then cross-model, then the
-        measured fallback constant. Estimates only ever raise a
-        turn's output — the booked partial is a lower bound from the
-        API — and affected rows are flagged with ``out_estimated``
-        so renderers can mark the number as approximate.
+        Every such turn is flagged with ``out_estimated`` — its
+        output is unverified either way — but the booked partial is
+        a lower bound from the API, so an estimate only ever raises
+        a turn's output. The per-model least-squares fit is
+        preferred; when the transcript can't support one, the
+        pooled-ratio chain from _pick_ratio applies.
         """
         if self._finalized:
             return
         self._finalized = True
         self._close_turn()
-        total_chars = sum(c for c, _ in self._calibration.values())
-        total_out = sum(o for _, o in self._calibration.values())
-        for row, model, chars in self._missing_final:
+        fits = {}
+        for row, model, text_chars, tool_chars in self._missing_final:
             row["out_estimated"] = True
             self.output_estimated["turn_count"] += 1
-            calib_chars, calib_out = self._calibration.get(model, (0, 0))
-            if calib_out >= _CALIBRATION_MIN_OUT_TOKENS:
-                ratio = calib_chars / calib_out
-            elif total_out >= _CALIBRATION_MIN_OUT_TOKENS:
-                ratio = total_chars / total_out
+            if model not in fits:
+                fits[model] = _fit_output_model(
+                    self._fit_samples.get(model, [])
+                )
+            fit = fits[model]
+            if fit is not None:
+                a, b, c = fit
+                est = int(a * text_chars + b * tool_chars + c)
             else:
-                ratio = _OUT_CHARS_PER_TOKEN_FALLBACK
-            est = int(chars / ratio) if ratio > 0 else 0
+                pool = _POOL_TOOL if tool_chars > text_chars else _POOL_TEXT
+                ratio = self._pick_ratio(model, pool)
+                est = int((text_chars + tool_chars) / ratio) if ratio > 0 else 0
             delta = est - row["out_tokens"]
             if delta <= 0:
                 continue

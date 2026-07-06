@@ -56,8 +56,8 @@ def format_metrics(metrics):
             n = est["turn_count"]
             lines.append(
                 f"  note: {n} turn{'s' if n != 1 else ''} missing final usage"
-                f" in transcript; output includes"
-                f" ≈{_fmt_k(est.get('added_tokens', 0))} estimated"
+                f" in transcript;"
+                f" ≈{_fmt_k(est.get('added_tokens', 0))} output tokens added"
             )
 
     # Per-model breakdown (only if multiple models)

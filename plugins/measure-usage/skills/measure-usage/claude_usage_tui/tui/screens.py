@@ -1161,8 +1161,9 @@ class TurnDetailModal(ModalScreen):
         )
         if out_mark:
             text += (
-                "\n          (out estimated from content length — the"
-                " transcript never recorded this turn's final usage)"
+                "\n          (the transcript never recorded this turn's"
+                " final usage — out is a content-length estimate, or the"
+                " booked partial count where that was larger)"
             )
         return text
 
