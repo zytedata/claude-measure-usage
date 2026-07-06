@@ -30,36 +30,16 @@ Then run `claude-usage-tui` from anywhere.
 
 ## What it looks like
 
-The app is a stack of three screens, plus modals for the fine detail:
-
-```
-projects  ──↵──▶  sessions  ──↵──▶  session detail  ──↵──▶  turn detail modal
-   ◀──esc            ◀──esc               │  ◀──esc
-                                          ↵ on a ↳subagent row
-                                          ▼
-                                    session detail   (stack grows, esc pops)
-```
-
-**Projects** — every project directory under `~/.claude/projects/`, with
-session count and last activity. The cursor starts on the project matching
-your current working directory.
-
-**Sessions** — every transcript in the selected project: start time, turn
-count, token usage, peak context, model, and a first-user-message summary.
-Transcripts parse in a background worker with a progress bar, so big
-projects stay responsive while loading.
-
-**Session detail** — the heart of the app: one row per assistant turn,
-with a cost decomposition per turn.
-
 ![Session detail screen: per-turn cost table with subagent rows](docs/session-detail.svg)
 
-The dimmed `↳` rows under turn 1 are subagents — here, two parallel
-Explore agents that ran on a different model than the main session;
-`↵` on one drills into its own per-turn table. The columns right of
-`what` hold the raw transcript counts (`model`, `in`, `out`, `cache_r`,
-`cache_w`) — exactly what the API reported, unnormalized. On narrow
-terminals the table scrolls horizontally with `←`/`→`.
+This is the **session detail** screen — the heart of the app: one row
+per assistant turn, with a cost decomposition per turn. The dimmed `↳`
+rows under turn 1 are subagents — here, two parallel Explore agents
+that ran on a different model than the main session; `↵` on one drills
+into its own per-turn table. The columns right of `what` hold the raw
+transcript counts (`model`, `in`, `out`, `cache_r`, `cache_w`) —
+exactly what the API reported, unnormalized. On narrow terminals the
+table scrolls horizontally with `←`/`→`.
 
 Three kinds of rows share the table:
 
@@ -73,6 +53,19 @@ Three kinds of rows share the table:
 - **Non-turn rows** — user messages, attachments, slash commands,
   compact boundaries, permission-mode changes. `↵` opens a payload
   modal with the full, untruncated content.
+
+Two picker screens lead here — the whole app is a stack (projects →
+sessions → session detail → modals) where `↵` drills in and `esc`
+always backs out one level:
+
+**Projects** — every project directory under `~/.claude/projects/`, with
+session count and last activity. The cursor starts on the project matching
+your current working directory.
+
+**Sessions** — every transcript in the selected project: start time, turn
+count, token usage, peak context, model, and a first-user-message summary.
+Transcripts parse in a background worker with a progress bar, so big
+projects stay responsive while loading.
 
 ### Keys
 
