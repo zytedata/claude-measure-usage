@@ -235,6 +235,12 @@ class TestFindSubagentTranscripts:
 # ---------------------------------------------------------------------------
 
 class TestModelCostScale:
+    def test_fable(self):
+        assert measure_usage._model_cost_scale("claude-fable-5") == pytest.approx(10 / 3)
+
+    def test_mythos(self):
+        assert measure_usage._model_cost_scale("claude-mythos-5") == pytest.approx(10 / 3)
+
     def test_opus_current(self):
         assert measure_usage._model_cost_scale("claude-opus-4-6") == pytest.approx(5 / 3)
         assert measure_usage._model_cost_scale("claude-opus-4-5-20250301") == pytest.approx(5 / 3)

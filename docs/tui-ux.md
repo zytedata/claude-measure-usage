@@ -1,14 +1,19 @@
 # claude-usage-tui — UX design
 
 This document is the interaction contract for the interactive TUI
-shipped by the `claude-usage-tui` PyPI package. It is an agreed
-design, not an aspirational one — what's in v1 here is what v1
-ships, and what's in Deferred is explicitly out of scope until it
-earns its place.
+shipped by the `claude-usage-tui` package. It describes what actually
+ships: code comments and tests cite it as the authority for the
+non-obvious rules (glued sort, filter glue, subagent accounting).
+Ideas that didn't make v1 live in Deferred, explicitly out of scope
+until they earn their place.
 
 The TUI is a read-only debugger over Claude Code session transcripts
 stored in `~/.claude/projects/`. It is not a monitor, not a live
 tracker, and not a report generator.
+
+User-facing documentation — install, screenshots, column semantics,
+the cost model — lives in the README. This doc records the
+interaction rules and the reasoning behind them.
 
 ## Goals and non-goals
 
@@ -28,21 +33,21 @@ tracker, and not a report generator.
 - Writing anything: no state mutation, no exporting, no clipboard.
 - Any kind of monitoring, alerting, or background polling.
 
-## Architecture: three screens, one modal
+## Architecture: three screens, stacked modals
 
 ```
-project screen  ──↵──▶  session screen  ──↵──▶  session detail  ──↵──▶  turn detail modal
-     ◀──esc/◀──                ◀──esc/◀──                       ◀──esc/◀──
+project screen  ──↵──▶  session screen  ──↵──▶  session detail  ──↵──▶  row modal
+     ◀──esc                  ◀──esc                    ◀──esc       (turn / payload)
                                                        │
-                                                       ↵ on subagent row
+                                                       ↵ on a ↳subagent row
                                                        ▼
                                                  session detail  (drill deeper, stack grows)
-                                                       ◀──esc──
 ```
 
 Every screen is a full-screen Textual `Screen`. The detail-screen
 stack grows arbitrarily deep when drilling into nested subagents;
-`esc` always pops exactly one level.
+`esc` always pops exactly one level (modal → table → session list →
+project list).
 
 `←` / `→` are **not** bound as back/forward. Textual's DataTable
 in row-cursor mode uses those keys to scroll horizontally when the
@@ -54,98 +59,58 @@ back key, so we stay on `esc` alone.
 ### Screen 1 — project picker
 
 Lists every directory under `~/.claude/projects/`, decoded back to
-its original cwd, plus a user-typed "go to path" escape hatch for
-directories outside that tree.
+its original cwd, with columns `Project`, `Sessions`, `Last`
+(relative last-activity time). Rows are ordered by last activity;
+the cursor starts on the project matching the current working
+directory.
 
-```
-┌─ claude-usage-tui ─────────────────────────────────── 12 projects ─┐
-│                                                                    │
-│    Project                                Sessions  Tokens  Last   │
-│  ▸ ~/svn/measure-usage                         18    2.4M  5m ago  │
-│    ~/svn/scraping-agent-skills                 47   12.1M  1h ago  │
-│    ~/svn/northstar2                            22    4.7M  3d ago  │
-│    ~/svn/logic-ab-swift                         3     580K  2d ago │
-│  ⋮                                                                  │
-│                                                                    │
-├────────────────────────────────────────────────────────────────────┤
-│  ↵ open  g goto path  s sort  / filter  r reload  q quit           │
-└────────────────────────────────────────────────────────────────────┘
-```
+`r` rescans the tree — filesystem-only, no transcript parsing, so
+it's fast even for big trees.
 
-- `▸` marks the current working directory; cursor lands there by
-  default. `Tokens` starts blank and fills in lazily per row as
-  each project's sessions get parsed — scanning every transcript
-  up front would be too slow.
-- `g` opens a mini-prompt to type an arbitrary path.
-- Default sort: `Last` (most recent activity first).
+A `Tokens` column was designed but deferred: filling it requires
+parsing every transcript in every project, which would block the
+initial render on cold caches (see Deferred).
 
 ### Screen 2 — session picker
 
-Lists `*.jsonl` files inside the selected project, with a preview
-of each session's shape.
+Lists `*.jsonl` transcripts in the selected project with columns
+`Started`, `Turns`, `Token usage`, `Peak ctx`, `Model`, `Summary`.
+`Summary` is the first user message, truncated — the "what was this
+session about?" anchor. `Token usage` is Sonnet input-equivalent,
+noted inline in the screen's sub_title rather than a dedicated
+legend row.
 
-```
-┌─ ~/svn/measure-usage ──────────────────── 18 sessions ─ sort: date ▼ ─┐
-│                                                                       │
-│    Started           Turns  Tokens  Peak ctx  Model   Summary         │
-│  ▸ 2026-04-12 09:14      8   92.4K   28.9K    opus    Build claude-u…│
-│    2026-04-11 22:30     42    1.1M   85.3K    opus    Add TUI plans…  │
-│    2026-04-11 17:02      3     89K   12.1K    sonnet  Quick fix for…  │
-│    2026-04-11 11:15  ⚠ 156    4.8M    174K    opus    Long debug sess…│
-│  ⋮                                                                    │
-│                                                                       │
-├───────────────────────────────────────────────────────────────────────┤
-│  ↵ open  esc back  s sort  / filter  r reload  q quit                 │
-└───────────────────────────────────────────────────────────────────────┘
-```
+Transcripts parse in a background worker with a per-file progress
+bar. Mounting with a blocking parse would look like a freeze on
+projects with many or large sessions; the worker lets the screen
+paint immediately and keeps input responsive — `esc` cancels the
+worker and pops.
 
-- `Summary` is the first user message, truncated. It's the
-  "what was this session about?" anchor.
-- `⚠` flags sessions whose peak context got close to the model's
-  compaction threshold.
+`i` opens the summary overlay for the highlighted session straight
+from the picker — triage a long session list without drilling into
+each candidate. `r` re-parses the project, preserving the cursor.
 
 ### Screen 3 — session detail
 
-Every detail screen — main session or nested subagent — is
-structurally identical. The only thing that changes with depth is
-the header.
+Every detail screen — main session or nested subagent — is rendered
+by the same class. Only the header changes with depth: subagent
+drill-ins get a breadcrumb chain (`Main → ↳a3f2 → ↳b8c1`). The
+header line above the table carries the session-level totals, and
+the sub_title shows the active sort mode plus the "cost columns are
+Sonnet input-equivalent" unit note.
 
-```
-┌─ 2026-04-12 09:14  ~/svn/measure-usage ────── 8 turns · 92.4K tokens ──┐
-│ Duration 3m11s  Peak ctx 28.9K  Model opus                              │
-│ 14% own · 36% carry · 50% caused   Wallclock 1m57s   Tools: Bash·Skill  │
-├─────────────────────────────────────────────────────────────────────────┤
-│ #      when   took    tokens  own    carry  what                   ctx │
-│ ─────  ────   ────    ──────  ───    ─────  ──────────────────  ────── │
-│ 1      0:04          20.9K   18.4K   2.5K   (startup) [Skill] …  23K  │
-│ 2      0:08   4s      7.8K    4.0K   3.9K   Starting Stage 1: d… 24K  │
-│ 3      0:14   6s     12.0K    8.0K   4.0K   Bash "BASE=barnesan… 26K  │
-│ 4      0:18   3s      5.8K    1.4K   4.4K   Folders ready. Now … 27K  │
-│        0:27                                 [user] https://www… │
-│ 5      0:30  1m34s  180.4K  176.2K   4.2K   Bash "uv run scrape" 27K  │
-│  ↳a3f2 0:30  1m10s  180.0K                    [Agent] "investig… 52K  │
-│  ↳b8c1 0:32    25s   45.2K                    [Skill] "scrape"   15K  │
-│ 6      2:08   3s      7.0K    2.5K   4.5K   The site blocked b…  28K  │
-│ ...                                                                    │
-├─────────────────────────────────────────────────────────────────────────┤
-│ ↵ details  s sort  / filter  r reload  esc back  q quit  ? help         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+Table columns, in order:
 
-Drilling into a subagent (↵ on one of the `↳` rows) pushes a new
-detail screen with the subagent's breadcrumb in its header:
+`#`, `when`, `took`, `cost`, `own`, `carry`, `caused`, `what`,
+`ctx`, `model`, `in`, `out`, `cache_r`, `cache_w`
 
-```
-┌─ ↳a3f2 "investigate blocker" · parent: ~/svn/measure-usage #5 · 7 turns · 180K ─┐
-│ Main  →  ↳a3f2                                                                   │
-│ Duration 1m10s  Peak ctx 52.1K  Model opus  spawned by: [Agent] at parent #5     │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│ #   when  took  tokens  own   carry  what                                  ctx   │
-│ ...                                                                              │
-```
+The last five are the raw transcript counts, unnormalized.
 
-Depth 2, 3, 4+ all look the same. The breadcrumb grows
-(`Main → ↳a3f2 → ↳b8c1 → ↳c7d5`).
+`r` re-parses the transcript from disk, preserving the current sort
+mode and filter text. On subagent drill-in screens it's a no-op —
+those don't own a file path; their data comes from the parent's
+agent tree, so "reload" is expressed by popping back and reloading
+there.
 
 ## Row semantics
 
@@ -153,13 +118,8 @@ The detail screen's table has three row kinds:
 
 ### Turn rows
 
-One per logical assistant turn. Sort-sensitive. Columns match the
-text CLI's per-turn output exactly:
-
-- `#`, `when`, `took`, `tokens`, `own`, `carry`, `caused`, `what`,
-  `ctx`, `model`, `in`, `out`, `cache_r`, `cache_w`
-
-`↵` → opens the **turn detail modal**.
+One per logical assistant turn. Sort-sensitive. `↵` → opens the
+**turn detail modal**.
 
 ### Subagent rows
 
@@ -171,18 +131,18 @@ inline — deeper levels are visited by drilling.
 Columns on a subagent row:
 
 - `#` shows `↳{short_id}` instead of a number.
-- `when` / `took` show the invocation time and the subagent's
-  wallclock span.
-- `tokens` shows the subtree total (already included in the parent
-  turn's `own`/`tokens` — see accounting below).
+- `when` / `took` show the invocation time (relative to the parent
+  session's start, so it lines up with surrounding turn rows) and
+  the subagent's wallclock span.
+- `cost` shows the subtree total (already included in the parent
+  turn's `own`/`cost` — see Accounting below).
 - `own` / `carry` / `caused` are blank; those are per-turn concepts.
-- `what` shows the invocation label + `{N}t` turn-count annotation.
+- `what` shows `[{tool}] "{description}" — {N} turns`.
 - `ctx` shows the subagent's peak context.
 - `model` shows the subagent's dominant model.
 
-Visually: row cells are rendered in a dimmed style and the `tokens`
-value is prefixed with `↳` so nobody mistakes it for an independent
-line item.
+Row cells are rendered in a dimmed style so nobody mistakes a
+footnote for an independent line item.
 
 `↵` → pushes a new session detail screen for that subagent.
 
@@ -194,44 +154,43 @@ from the transcript's non-turn timeline (`nonturn_rows.py`) and are
 shown inline at their natural position so UX events read in order
 with model turns.
 
-`↵` → opens a small **payload modal** showing the full contents
+`↵` → opens a **payload modal** showing the full contents
 (full `allowedTools` list, full user message, full attachment body).
 These are the things the text CLI truncates or collapses.
 
 ## Accounting (important)
 
-**Parent turn's `own` and `tokens` include the subagent subtree
+**Parent turn's `own` and `cost` include the subagent subtree
 rollup.** This is unchanged from the text CLI. Rationale: we want
-sorting by `tokens desc` to bubble up turns that were expensive
+sorting by `cost desc` to bubble up turns that were expensive
 *because of* their subagents, not hide them behind self-cost.
 
 Subagent footnote rows show each subagent's individual contribution
 for visual accounting, but that contribution is already counted in
 the parent — summing all rows naively would double-count.
 
-The **totals row** at the bottom of the table sums turn rows only.
-Subagent footnote rows do not contribute. This keeps the table
-total reconciled with the session total.
+The session-level totals shown in the detail header are computed
+from the parse, not by summing table rows, so they stay reconciled
+with the session total regardless of what rows are visible.
 
 The **turn detail modal** shows the rigorous breakdown for any
-parent turn:
-
-```
-Tokens:   180.4K   (= own 176.2K + carry 4.2K · caused +1K)
-            own decomposes as:
-              self          2.9K   (this turn's own work)
-              subagents   173.3K   (rolled up from spawned children)
-                ↳a3f2    180.0K    [Agent] "investigate blocker"
-                ↳b8c1     45.2K    [Skill] "scrape"
-```
+parent turn: `cost = own + carry`, with `own` decomposed into
+`self` (this turn's own work) and `subagents` (rolled up from
+spawned children, itemized per child).
 
 ## Sort
 
-`s` cycles through a fixed rotation shown in the header:
+`s` cycles through a fixed rotation; the active sort column gets a
+`▼` indicator in its header label:
 
 ```
-natural  →  tokens ▼  →  own ▼  →  took ▼  →  ctx ▼  →  natural
+natural  →  took ▼  →  cost ▼  →  own ▼  →  carry ▼  →  caused ▼  →  natural
 ```
+
+The cycle order follows the visual column order in the table.
+Columns without a meaningful sort (`when`, `what`, `ctx`, `model`,
+the raw counts) are skipped. Clicking a column header also sorts —
+clicks on non-sortable columns are no-ops.
 
 Sort is **glued**: it operates on turn rows; each subagent footnote
 stays immediately after its spawning turn. Sort never reorders
@@ -262,36 +221,26 @@ is deferred to v2 — adds a tokenizer without proportional UX value.
 
 ## Turn detail modal
 
-```
-┌─ Turn 5  ·  0:30 +1m34s  ·  180.4K tokens ─────────────── [esc] ─┐
-│                                                                   │
-│ Model:    claude-opus-4-6                                         │
-│ Tokens:   180.4K (= own 176.2K + carry 4.2K · caused +1K)         │
-│            own decomposes as:                                     │
-│              self          2.9K                                   │
-│              subagents   173.3K                                   │
-│ Raw:      in 6   out 312   cache_r 26.9K   cache_w 115   ctx 27K  │
-│                                                                   │
-│ Text preview ───────────────────────────────────────────────────  │
-│ Running the scraper to see how it handles a known-blocked site    │
-│ before we try to work around the anti-bot measures.               │
-│                                                                   │
-│ Tool calls ─────────────────────────────────────────────────────  │
-│ ▸ [1] Bash                                                        │
-│     command: uv run /Users/kmike/svn/scraping-agent-skills/…      │
-│     description: Run scraper against blocked page                 │
-│                                                                   │
-│                                                esc close          │
-└───────────────────────────────────────────────────────────────────┘
-```
+A scrollable overlay showing everything about one turn:
 
-Scrollable. Tool calls with long inputs have an expand toggle.
-Contains no "Spawned subagents" section — that lives in the main
-table as footnote rows.
+- the cost decomposition (`cost = own + carry`, `caused`
+  projection, `own = self + subagents` itemized per child),
+- the raw transcript counts,
+- the full text preview,
+- tool calls with their inputs,
+- a **Spawned subagents** list when the turn has children.
 
-## Non-turn detail modals
+`↵` on an entry in the subagent list drills into that subagent's
+detail screen directly. The original design kept subagent
+navigation exclusively in the main table, but drilling from the
+modal saves the hop back out, and Enter-selects-row is consistent
+with every other list widget in the app. Elsewhere in the modal,
+`↵` closes it — the same key that opened it — as do `esc` and `q`.
 
-Each non-turn row type gets a targeted payload modal:
+## Non-turn payload modals
+
+One modal renders all non-turn row types, dispatching on the row's
+kind for structured per-type content:
 
 | Row type | Modal content |
 |---|---|
@@ -304,41 +253,54 @@ Each non-turn row type gets a targeted payload modal:
 | `permission-mode` | Old → new mode |
 | `progress` | Hook name, tool id, full data dict |
 
-All dismissible with `esc`.
+Unknown kinds fall back to a pretty-printed JSON dump so nothing is
+ever invisible. All dismissible with `esc`.
 
-## Keybindings (session detail)
+## Summary overlay
 
-| Key | Action |
-|---|---|
-| `↑` / `↓` | Move cursor |
-| `↵` | Open detail modal for focused row; ↵ on a subagent row drills into its screen |
-| `esc` | Back one level (modal → table → session list → project list) |
-| `s` | Cycle sort |
-| `/` | Filter |
-| `r` | Reload transcript from disk |
-| `q` | Quit |
-| `?` | Help overlay |
+`i` — available on the session picker and every session detail
+screen — shows the session-level summary: duration, token breakdown
+by type, peak context, turn and user-message counts, per-tool cost
+table, subagent tree rollup. It reuses the same
+`compute_metrics_from_parsed` + `format_metrics` pipeline as the
+`/measure-usage` skill's text output, so the TUI and the plain CLI
+produce identical summaries — single source of truth.
+
+## Keybindings
+
+| Key | Project | Sessions | Session detail |
+|---|---|---|---|
+| `↑` / `↓` | move cursor | move cursor | move cursor |
+| `↵` | open project | open session | detail modal / drill into `↳` row |
+| `esc` | — | back | back one level |
+| `s` | — | — | cycle sort |
+| `/` | — | — | filter |
+| `i` | — | summary overlay | summary overlay |
+| `r` | rescan tree | re-parse project | re-parse transcript |
+| `q` | quit | quit | quit |
+| `?` | help | help | help |
+
+`?` opens a help overlay listing the current screen's bindings.
+
+"Open" on the pickers is handled via `DataTable.RowSelected` rather
+than a screen-level `enter` binding: DataTable installs its own
+priority enter binding that fires that message, which would shadow
+anything the screen defines.
 
 No `d` (toggleable detail sidebar) — dropped because the modal
 covers the same ground with less surface area. No `→` direct-drill
 shortcut — `↵` handles it since the cursor can land on subagent
 rows directly.
 
-## v1 scope
-
-- Three screens with navigation, back, reload.
-- Project screen: `Sessions`, `Last`, lazy `Tokens`.
-- Session screen: all columns.
-- Session detail: turn rows + subagent footnote rows + non-turn
-  rows; turn detail modal; non-turn payload modals.
-- Glued sort cycle.
-- Substring filter with glue rule.
-- Recursive subagent drill-in via screen stack.
-
 ## Deferred (v2+)
 
+- Project picker `Tokens` column, filled lazily per row.
+- `g` goto-path prompt on the project picker, for directories
+  outside `~/.claude/projects/`.
+- Sort and filter on the project and session pickers.
+- `⚠` flag on sessions whose peak context neared the compaction
+  threshold.
 - Filter mini-DSL (`tool:`, `>5k`, `model:opus`).
-- Column-header click to sort (mouse).
 - Live tailing of active sessions.
 - Shift-cursor to skip between turn rows past subagent footnotes.
 - Clipboard copy actions.

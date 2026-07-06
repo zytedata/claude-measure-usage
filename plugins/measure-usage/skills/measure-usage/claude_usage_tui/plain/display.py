@@ -195,18 +195,18 @@ def _fmt_k(tokens, use_m=True):
 
 
 def _short_model(model_name):
-    """Shorten a model ID to its family name: opus, sonnet, haiku."""
+    """Shorten a model ID to its family name: fable, opus, sonnet, haiku."""
     name = model_name.lower()
-    for family in ("opus", "sonnet", "haiku"):
+    for family in ("fable", "opus", "sonnet", "haiku"):
         if family in name:
             return family
     return model_name
 
 
 def _tiny_model(model_name):
-    """Shorten a model ID to a 4-char tag for dense tables: opus, sonn, haik."""
+    """Shorten a model ID to a 4-char tag for dense tables: fabl, opus, sonn, haik."""
     name = model_name.lower()
-    for family, tag in (("opus", "opus"), ("sonnet", "sonn"), ("haiku", "haik")):
+    for family, tag in (("fable", "fabl"), ("opus", "opus"), ("sonnet", "sonn"), ("haiku", "haik")):
         if family in name:
             return tag
     return (model_name or "")[:4]
