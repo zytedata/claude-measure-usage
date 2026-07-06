@@ -229,6 +229,64 @@ class TestFindSubagentTranscripts:
         assert any("agent-child1.jsonl" in p for p in paths)
         assert any("agent-parent1.jsonl" in p for p in paths)
 
+    def _agent_entry(self, ts):
+        return json.dumps({
+            "type": "assistant", "uuid": "a1", "timestamp": ts,
+            "sessionId": "sub",
+            "message": {
+                "role": "assistant", "id": "m1",
+                "model": "claude-sonnet-4-6",
+                "content": [{"type": "text", "text": "hi"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 5,
+                          "cache_creation_input_tokens": 0,
+                          "cache_read_input_tokens": 0},
+            },
+        }) + "\n"
+
+    def test_workflow_subagents_found(self, tmp_path):
+        # Workflow-spawned agents live one level deeper, under
+        # subagents/workflows/wf_*/ — they must be discovered too.
+        transcript = tmp_path / "session.jsonl"
+        transcript.write_text("")
+        direct = tmp_path / "session" / "subagents"
+        direct.mkdir(parents=True)
+        (direct / "agent-a1.jsonl").write_text(
+            self._agent_entry("2026-04-07T10:00:01Z"))
+        wf = direct / "workflows" / "wf_12345678-abc"
+        wf.mkdir(parents=True)
+        (wf / "agent-a2.jsonl").write_text(
+            self._agent_entry("2026-04-07T10:00:02Z"))
+
+        results = measure_usage.find_subagent_transcripts(str(transcript), 0)
+
+        paths = [r["path"] for r in results]
+        assert len(results) == 2
+        assert any("subagents/agent-a1.jsonl" in p for p in paths)
+        assert any("workflows/wf_12345678-abc/agent-a2.jsonl" in p
+                   for p in paths)
+
+    def test_workflow_subagent_lands_in_agent_tree(self, tmp_path):
+        # No Agent/Skill call matches a workflow agent (it's spawned
+        # by the Workflow tool), so it must fall back to being a
+        # child of main — present in the tree with its tokens rather
+        # than invisible.
+        transcript = tmp_path / "session.jsonl"
+        transcript.write_text(self._agent_entry("2026-04-07T10:00:00Z"))
+        wf = tmp_path / "session" / "subagents" / "workflows" / "wf_1"
+        wf.mkdir(parents=True)
+        (wf / "agent-a2.jsonl").write_text(
+            self._agent_entry("2026-04-07T10:00:02Z"))
+
+        parsed = measure_usage.parse_transcript(str(transcript))
+        infos = measure_usage.find_subagent_transcripts(str(transcript), 0)
+        tree = measure_usage.build_agent_tree(str(transcript), parsed, infos)
+
+        assert len(tree) == 1
+        node = tree[0]
+        assert node["path"] == "agent-a2.jsonl"
+        assert node["tokens_by_model"]["claude-sonnet-4-6"]["output_tokens"] == 5
+
 
 # ---------------------------------------------------------------------------
 # Token helpers

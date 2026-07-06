@@ -127,6 +127,10 @@ def read_subagent_meta(jsonl_path):
 def find_subagent_transcripts(transcript_path, start_ts):
     """Find subagent transcripts that started after start_ts.
 
+    Regular subagents live directly in ``subagents/``; agents spawned
+    by the Workflow tool are written one level deeper, under
+    ``subagents/workflows/wf_*/``. Both are returned.
+
     Returns list of dicts with path, start_ts, and meta.
     """
     session_dir = Path(transcript_path).with_suffix("")
@@ -134,7 +138,11 @@ def find_subagent_transcripts(transcript_path, start_ts):
     if not subagents_dir.exists():
         return []
     results = []
-    for p in sorted(subagents_dir.glob("agent-*.jsonl")):
+    candidates = sorted(
+        list(subagents_dir.glob("agent-*.jsonl"))
+        + list(subagents_dir.glob("workflows/*/agent-*.jsonl"))
+    )
+    for p in candidates:
         if "compact" in p.name:
             continue
         for entry in _iter_transcript(str(p)):
