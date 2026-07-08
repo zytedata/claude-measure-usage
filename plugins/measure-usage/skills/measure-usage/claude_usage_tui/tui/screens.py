@@ -1412,11 +1412,6 @@ class SummaryModal(ModalScreen):
         self._title = title
         self._parsed = parsed
         self._tree = tree
-        # Absolute path to the session's .jsonl transcript, shown so
-        # the user can copy it and hand it to an agent to debug the
-        # session directly (see issue #10). None on subagent drill-in
-        # summaries, whose data comes from the parent's agent tree
-        # rather than a standalone file — nothing to point at there.
         self._transcript_path = transcript_path
 
     def compose(self) -> ComposeResult:

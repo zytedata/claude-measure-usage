@@ -267,8 +267,7 @@ table, subagent tree rollup. It reuses the same
 produce identical summaries — single source of truth.
 
 The overlay also prints the absolute path to the session's `.jsonl`
-transcript (`Transcript: …`) so a user can select it and hand it to
-an agent to debug that session directly. It's shown for real
+transcript (`Transcript: …`) so a user can read it. It's shown for real
 sessions but omitted on subagent drill-in summaries, whose data
 comes from the parent's agent tree rather than a standalone file.
 
