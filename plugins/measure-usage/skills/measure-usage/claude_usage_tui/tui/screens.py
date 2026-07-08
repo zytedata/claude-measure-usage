@@ -542,6 +542,7 @@ class SessionScreen(Screen):
                 title=self._title_for(entry),
                 parsed=parsed,
                 tree=tree,
+                transcript_path=entry.transcript_path,
             )
         )
 
@@ -823,6 +824,7 @@ class SessionDetailScreen(Screen):
                 title=self._title,
                 parsed=self._parsed,
                 tree=self._tree,
+                transcript_path=self._transcript_path,
             )
         )
 
@@ -1379,6 +1381,11 @@ class SummaryModal(ModalScreen):
         color: $accent;
         text-style: bold;
     }
+    SummaryModal #modal_path {
+        height: auto;
+        color: $text-muted;
+        margin-top: 1;
+    }
     SummaryModal #modal_body {
         height: 1fr;
         padding-top: 1;
@@ -1399,15 +1406,28 @@ class SummaryModal(ModalScreen):
         title: str,
         parsed: dict,
         tree: list[dict],
+        transcript_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._title = title
         self._parsed = parsed
         self._tree = tree
+        # Absolute path to the session's .jsonl transcript, shown so
+        # the user can copy it and hand it to an agent to debug the
+        # session directly (see issue #10). None on subagent drill-in
+        # summaries, whose data comes from the parent's agent tree
+        # rather than a standalone file — nothing to point at there.
+        self._transcript_path = transcript_path
 
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Static(f"Summary  ·  {self._title}", id="modal_header")
+            if self._transcript_path is not None:
+                yield Static(
+                    f"Transcript: {self._transcript_path}",
+                    id="modal_path",
+                    markup=False,
+                )
             with VerticalScroll(id="modal_body"):
                 yield Static(self._summary_text())
             yield Static("esc close", id="modal_footer")

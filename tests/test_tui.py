@@ -1588,6 +1588,14 @@ class TestProjectScreenPilot:
                 # Duration line — that's what format_metrics
                 # always puts on the first line.
                 assert summary_text.startswith("Duration:")
+                # The overlay surfaces the transcript path so the
+                # user can copy it and point an agent at the
+                # session (issue #10).
+                from textual.widgets import Static
+
+                assert app.screen._transcript_path == proj_dir / "s.jsonl"
+                path_line = app.screen.query_one("#modal_path", Static)
+                assert str(proj_dir / "s.jsonl") in str(path_line.render())
                 # Dismiss — should land back on the session
                 # picker, not on a detail screen.
                 await pilot.press("escape")
