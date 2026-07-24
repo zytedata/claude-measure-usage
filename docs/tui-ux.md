@@ -266,6 +266,11 @@ table, subagent tree rollup. It reuses the same
 `/measure-usage` skill's text output, so the TUI and the plain CLI
 produce identical summaries — single source of truth.
 
+The overlay also prints the absolute path to the session's `.jsonl`
+transcript (`Transcript: …`) so a user can read it. It's shown for real
+sessions but omitted on subagent drill-in summaries, whose data
+comes from the parent's agent tree rather than a standalone file.
+
 ## Keybindings
 
 | Key | Project | Sessions | Session detail |
