@@ -1,7 +1,7 @@
-# claude-usage-tui — UX design
+# claude-measure-usage — UX design
 
 This document is the interaction contract for the interactive TUI
-shipped by the `claude-usage-tui` package. It describes what actually
+shipped by the `claude-measure-usage` package. It describes what actually
 ships: code comments and tests cite it as the authority for the
 non-obvious rules (glued sort, filter glue, subagent accounting).
 Ideas that didn't make v1 live in Deferred, explicitly out of scope
@@ -313,9 +313,9 @@ rows directly.
 
 ## Code layout
 
-The TUI lives in `claude_usage_tui/tui/` and imports shared data
+The TUI lives in `claude_measure_usage/tui/` and imports shared data
 from the top-level modules (`parse`, `metrics`, `turns_label`,
-`nonturn_rows`). It must not import from `claude_usage_tui.plain`
+`nonturn_rows`). It must not import from `claude_measure_usage.plain`
 and vice versa — the layering is enforced by a subprocess test
 (`TestPlainDoesNotImportTextual`).
 

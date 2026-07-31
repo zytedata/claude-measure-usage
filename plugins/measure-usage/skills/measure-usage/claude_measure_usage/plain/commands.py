@@ -177,7 +177,7 @@ def cmd_session(session_id):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python -m claude_usage_tui.plain <command> [session_id]")
+        print("Usage: python -m claude_measure_usage.plain <command> [session_id]")
         print("Commands: start, stats, stop, session, turns")
         sys.exit(1)
 

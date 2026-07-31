@@ -1,6 +1,6 @@
 """Human-readable formatters used by the TUI screens.
 
-Kept separate from ``claude_usage_tui.plain.display`` on purpose:
+Kept separate from ``claude_measure_usage.plain.display`` on purpose:
 the plain CLI's formatters target a fixed-width text column layout
 with its own padding and truncation concerns, while the TUI's
 formatters feed into Textual widgets that handle layout themselves.

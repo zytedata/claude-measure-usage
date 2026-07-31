@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-# Add scripts dir to path so we can import claude_usage_tui
+# Add scripts dir to path so we can import claude_measure_usage
 PACKAGE_DIR = str(Path(__file__).parent.parent / "plugins" / "measure-usage" / "skills" / "measure-usage")
 sys.path.insert(0, PACKAGE_DIR)
 
-import claude_usage_tui as measure_usage  # noqa: E402
-from claude_usage_tui.plain import commands as mu_commands  # noqa: E402
+import claude_measure_usage as measure_usage  # noqa: E402
+from claude_measure_usage.plain import commands as mu_commands  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -1891,7 +1891,7 @@ class TestNonturnRows:
         """Per-turn caused_seq attribution must stop at
         ``system:compact_boundary``: turns before the boundary cannot
         inherit their cache_w into turns after it."""
-        from claude_usage_tui.metrics import compute_caused_by_turn
+        from claude_measure_usage.metrics import compute_caused_by_turn
 
         def mk_turn(n, cache_w=0):
             return {
@@ -1924,7 +1924,7 @@ class TestNonturnRows:
         """compute_tool_costs should respect compact_boundary when
         ``rows`` is supplied — a tool result from before a
         compaction is not billed against turns after it."""
-        from claude_usage_tui.metrics import compute_tool_costs
+        from claude_measure_usage.metrics import compute_tool_costs
 
         invocations = [
             {
@@ -2218,7 +2218,7 @@ class TestTurnSeq:
 # ---------------------------------------------------------------------------
 
 class TestPlainDoesNotImportTextual:
-    """The /measure-usage skill runs `python -m claude_usage_tui.plain`
+    """The /measure-usage skill runs `python -m claude_measure_usage.plain`
     and must not load Textual as a side effect — the skill environment
     doesn't need (and shouldn't require) a GUI dependency.
 
@@ -2232,8 +2232,8 @@ class TestPlainDoesNotImportTextual:
         code = (
             "import sys\n"
             "sys.path.insert(0, %r)\n"
-            "import claude_usage_tui.plain  # noqa: F401\n"
-            "from claude_usage_tui.plain import commands  # noqa: F401\n"
+            "import claude_measure_usage.plain  # noqa: F401\n"
+            "from claude_measure_usage.plain import commands  # noqa: F401\n"
             "bad = sorted(m for m in sys.modules if m == 'textual' or m.startswith('textual.'))\n"
             "assert not bad, 'textual leaked into plain: ' + repr(bad)\n"
             % PACKAGE_DIR

@@ -1,6 +1,6 @@
 """Tests for the interactive TUI layer.
 
-Discovery helpers live in ``claude_usage_tui.tui.discovery``; the
+Discovery helpers live in ``claude_measure_usage.tui.discovery``; the
 Textual screens are exercised end-to-end via ``App.run_test()``.
 """
 
@@ -24,7 +24,7 @@ sys.path.insert(0, PACKAGE_DIR)
 # discovery
 # ---------------------------------------------------------------------------
 
-from claude_usage_tui.tui import discovery  # noqa: E402
+from claude_measure_usage.tui import discovery  # noqa: E402
 
 
 class TestDiscoverProjects:
@@ -254,12 +254,12 @@ class TestDominantModel:
 # detail_rows
 # ---------------------------------------------------------------------------
 
-from claude_usage_tui.parse import (  # noqa: E402
+from claude_measure_usage.parse import (  # noqa: E402
     parse_transcript,
     find_subagent_transcripts,
     build_agent_tree,
 )
-from claude_usage_tui.tui import detail_rows  # noqa: E402
+from claude_measure_usage.tui import detail_rows  # noqa: E402
 
 
 class TestBuildDetailRows:
@@ -363,7 +363,7 @@ class TestCellStyling:
         )
 
     def test_turn_row_default_styling(self):
-        from claude_usage_tui.tui.screens import _cells_for
+        from claude_measure_usage.tui.screens import _cells_for
 
         row = self._mk("turn", model="claude-sonnet-4-6")
         cells = _cells_for(row)
@@ -372,7 +372,7 @@ class TestCellStyling:
 
     def test_turn_row_opus_model_colored_red(self):
         from rich.text import Text
-        from claude_usage_tui.tui.screens import _cells_for
+        from claude_measure_usage.tui.screens import _cells_for
 
         row = self._mk("turn", model="claude-opus-4-6")
         cells = _cells_for(row)
@@ -383,7 +383,7 @@ class TestCellStyling:
 
     def test_turn_row_haiku_model_colored_green(self):
         from rich.text import Text
-        from claude_usage_tui.tui.screens import _cells_for
+        from claude_measure_usage.tui.screens import _cells_for
 
         row = self._mk("turn", model="claude-haiku-4-5")
         cells = _cells_for(row)
@@ -392,7 +392,7 @@ class TestCellStyling:
 
     def test_turn_row_fable_model_colored_magenta(self):
         from rich.text import Text
-        from claude_usage_tui.tui.screens import _cells_for
+        from claude_measure_usage.tui.screens import _cells_for
 
         row = self._mk("turn", model="claude-fable-5")
         cells = _cells_for(row)
@@ -401,7 +401,7 @@ class TestCellStyling:
 
     def test_subagent_row_colored_cyan(self):
         from rich.text import Text
-        from claude_usage_tui.tui.screens import _cells_for
+        from claude_measure_usage.tui.screens import _cells_for
 
         row = self._mk("subagent", num="↳a3f2", what="[Agent] investigate")
         cells = _cells_for(row)
@@ -411,7 +411,7 @@ class TestCellStyling:
 
     def test_subagent_row_model_cell_keeps_family_color(self):
         from rich.text import Text
-        from claude_usage_tui.tui.screens import _cells_for
+        from claude_measure_usage.tui.screens import _cells_for
 
         row = self._mk("subagent", model="claude-opus-4-6")
         cells = _cells_for(row)
@@ -421,7 +421,7 @@ class TestCellStyling:
 
     def test_nonturn_row_colored_dim(self):
         from rich.text import Text
-        from claude_usage_tui.tui.screens import _cells_for
+        from claude_measure_usage.tui.screens import _cells_for
 
         row = self._mk("nonturn", what="[user] hi")
         cells = _cells_for(row)
@@ -441,7 +441,7 @@ class TestColumnWidthsFitSortIndicator:
     """
 
     def test_every_sortable_column_has_room_for_arrow(self):
-        from claude_usage_tui.tui.screens import SessionDetailScreen
+        from claude_measure_usage.tui.screens import SessionDetailScreen
 
         sortable_columns = {
             m.column_id for m in detail_rows.SORT_MODES
@@ -692,7 +692,7 @@ class TestProjectForCwd:
 # format
 # ---------------------------------------------------------------------------
 
-from claude_usage_tui.tui.format import (  # noqa: E402
+from claude_measure_usage.tui.format import (  # noqa: E402
     rel_time,
     short_datetime,
     short_tokens,
@@ -792,7 +792,7 @@ class TestNonturnDetailModal:
     """
 
     def _mk_row(self, kind: str, entry: dict):
-        from claude_usage_tui.tui.detail_rows import DetailRow
+        from claude_measure_usage.tui.detail_rows import DetailRow
 
         return DetailRow(
             kind="nonturn",
@@ -801,7 +801,7 @@ class TestNonturnDetailModal:
         )
 
     def _modal(self, kind: str, entry: dict):
-        from claude_usage_tui.tui.screens import NonturnDetailModal
+        from claude_measure_usage.tui.screens import NonturnDetailModal
 
         return NonturnDetailModal(self._mk_row(kind, entry))
 
@@ -937,10 +937,10 @@ class TestProjectScreenPilot:
     def test_mounts_and_populates(self, fake_projects):
         import asyncio
         from textual.widgets import DataTable
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_measure_usage.tui.app import MeasureUsageApp
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test() as pilot:
                 await pilot.pause()
                 table = app.screen.query_one(DataTable)
@@ -967,8 +967,8 @@ class TestProjectScreenPilot:
         """
         import asyncio
         from textual.widgets import DataTable
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import ProjectScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import ProjectScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         projects_root.mkdir(parents=True)
@@ -979,7 +979,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test() as pilot:
                 await pilot.pause()
                 assert isinstance(app.screen, ProjectScreen)
@@ -1028,8 +1028,8 @@ class TestProjectScreenPilot:
         import asyncio
         import shutil
         from textual.widgets import DataTable
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import SessionScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import SessionScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-sreload"
@@ -1038,7 +1038,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test() as pilot:
                 await pilot.pause()
                 await pilot.press("enter")
@@ -1081,9 +1081,9 @@ class TestProjectScreenPilot:
         import shutil
         from unittest.mock import patch
         from textual.widgets import DataTable
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui import discovery
-        from claude_usage_tui.tui.screens import SessionScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui import discovery
+        from claude_measure_usage.tui.screens import SessionScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-p"
@@ -1102,9 +1102,9 @@ class TestProjectScreenPilot:
         async def run():
             with patch.object(discovery, "load_session", flaky), \
                  patch(
-                     "claude_usage_tui.tui.screens.load_session", flaky
+                     "claude_measure_usage.tui.screens.load_session", flaky
                  ):
-                app = ClaudeUsageTuiApp()
+                app = MeasureUsageApp()
                 async with app.run_test() as pilot:
                     await pilot.pause()
                     await pilot.press("enter")
@@ -1132,8 +1132,8 @@ class TestProjectScreenPilot:
         import asyncio
         import shutil
         from textual.widgets import DataTable
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import SessionDetailScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import SessionDetailScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-reload"
@@ -1148,7 +1148,7 @@ class TestProjectScreenPilot:
         )
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test(size=(160, 40)) as pilot:
                 await pilot.pause()
                 await pilot.press("enter")
@@ -1190,8 +1190,8 @@ class TestProjectScreenPilot:
         import asyncio
         import shutil
         from textual.widgets import DataTable, Input
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import SessionDetailScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import SessionDetailScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-filter"
@@ -1200,7 +1200,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test(size=(160, 40)) as pilot:
                 await pilot.pause()
                 await pilot.press("enter")
@@ -1253,8 +1253,8 @@ class TestProjectScreenPilot:
         import shutil
         from textual.widgets import DataTable
         from textual.widgets.data_table import ColumnKey
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import SessionDetailScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import SessionDetailScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-hdr"
@@ -1263,7 +1263,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test(size=(160, 40)) as pilot:
                 await pilot.pause()
                 await pilot.press("enter")
@@ -1313,7 +1313,7 @@ class TestProjectScreenPilot:
         import asyncio
         import shutil
         from textual.widgets import DataTable
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
+        from claude_measure_usage.tui.app import MeasureUsageApp
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-hdr2"
@@ -1322,7 +1322,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test(size=(160, 40)) as pilot:
                 await pilot.pause()
                 await pilot.press("enter")
@@ -1357,8 +1357,8 @@ class TestProjectScreenPilot:
         import asyncio
         import shutil
         from textual.widgets import DataTable
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import SessionDetailScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import SessionDetailScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-sort"
@@ -1367,7 +1367,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test(size=(160, 40)) as pilot:
                 await pilot.pause()
                 await pilot.press("enter")
@@ -1408,8 +1408,8 @@ class TestProjectScreenPilot:
         import shutil
         from textual.widgets import DataTable, OptionList
         from textual.coordinate import Coordinate
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import (
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import (
             ProjectScreen,
             SessionDetailScreen,
             SessionScreen,
@@ -1431,7 +1431,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test(size=(160, 40)) as pilot:
                 await pilot.pause()
                 await pilot.press("enter")  # open project
@@ -1481,8 +1481,8 @@ class TestProjectScreenPilot:
         to the originating screen."""
         import asyncio
         import shutil
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import (
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import (
             HelpModal,
             ProjectScreen,
             SessionDetailScreen,
@@ -1496,7 +1496,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test(size=(160, 50)) as pilot:
                 await pilot.pause()
 
@@ -1559,8 +1559,8 @@ class TestProjectScreenPilot:
         import asyncio
         import shutil
         from textual.widgets import Static
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import (
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import (
             SessionScreen,
             SummaryModal,
         )
@@ -1572,7 +1572,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test(size=(160, 40)) as pilot:
                 await pilot.pause()
                 await pilot.press("enter")
@@ -1612,8 +1612,8 @@ class TestProjectScreenPilot:
         import shutil
         from textual.widgets import DataTable
         from textual.coordinate import Coordinate
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import SessionDetailScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import SessionDetailScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-sub"
@@ -1627,7 +1627,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test(size=(160, 40)) as pilot:
                 await pilot.pause()
                 await pilot.press("enter")
@@ -1672,8 +1672,8 @@ class TestProjectScreenPilot:
         import asyncio
         import shutil
         from textual.widgets import DataTable
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import (
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import (
             ProjectScreen,
             SessionScreen,
             SessionDetailScreen,
@@ -1686,7 +1686,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test() as pilot:
                 await pilot.pause()
                 assert isinstance(app.screen, ProjectScreen)
@@ -1723,8 +1723,8 @@ class TestProjectScreenPilot:
         import asyncio
         import shutil
         from textual.widgets import DataTable, ProgressBar
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import SessionScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import SessionScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-p"
@@ -1736,7 +1736,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test() as pilot:
                 await pilot.pause()
                 await pilot.press("enter")
@@ -1762,8 +1762,8 @@ class TestProjectScreenPilot:
         import asyncio
         import shutil
         from textual.widgets import DataTable
-        from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-        from claude_usage_tui.tui.screens import ProjectScreen, SessionScreen
+        from claude_measure_usage.tui.app import MeasureUsageApp
+        from claude_measure_usage.tui.screens import ProjectScreen, SessionScreen
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-fake-project"
@@ -1772,7 +1772,7 @@ class TestProjectScreenPilot:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         async def run():
-            app = ClaudeUsageTuiApp()
+            app = MeasureUsageApp()
             async with app.run_test() as pilot:
                 await pilot.pause()
                 assert isinstance(app.screen, ProjectScreen)

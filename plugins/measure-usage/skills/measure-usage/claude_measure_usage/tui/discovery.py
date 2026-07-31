@@ -147,7 +147,7 @@ def discover_sessions(project_dir: Path) -> list[SessionEntry]:
     """Return every session transcript inside ``project_dir``.
 
     Parses each ``*.jsonl`` file with the shared
-    :func:`claude_usage_tui.parse.parse_transcript` so the TUI's
+    :func:`claude_measure_usage.parse.parse_transcript` so the TUI's
     session screen can sort and display real token totals. Empty
     or malformed files are still included as ``SessionEntry``
     records with zeroed fields — the user should see them rather

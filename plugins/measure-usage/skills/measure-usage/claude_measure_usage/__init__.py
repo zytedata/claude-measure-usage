@@ -2,10 +2,10 @@
 
 Two presentation layers sit on top of a shared data layer:
 
-- :mod:`claude_usage_tui.plain` — non-interactive text renderer used
+- :mod:`claude_measure_usage.plain` — non-interactive text renderer used
   by the ``/measure-usage`` Claude Code skill.
-- :mod:`claude_usage_tui.tui` — interactive Textual UI (not imported
-  here, so ``import claude_usage_tui`` never pulls Textual in).
+- :mod:`claude_measure_usage.tui` — interactive Textual UI (not imported
+  here, so ``import claude_measure_usage`` never pulls Textual in).
 """
 
 # Re-export public API for convenience and test compatibility
