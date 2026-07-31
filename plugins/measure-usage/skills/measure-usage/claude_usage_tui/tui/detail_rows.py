@@ -210,7 +210,10 @@ def _turn_row(
         ctx=short_tokens(t.get("ctx", 0)),
         model=tiny_model(t.get("model", "")),
         in_tokens=short_tokens(t.get("in_tokens", 0)),
-        out=short_tokens(t.get("out_tokens", 0)),
+        # "≈" marks output estimated from content length because the
+        # transcript never recorded this turn's final usage.
+        out=("≈" if t.get("out_estimated") else "")
+        + short_tokens(t.get("out_tokens", 0)),
         cache_r=short_tokens(t.get("cache_r", 0)),
         cache_w=short_tokens(t.get("cache_w", 0)),
         # Stash the primitives the modal needs so it doesn't

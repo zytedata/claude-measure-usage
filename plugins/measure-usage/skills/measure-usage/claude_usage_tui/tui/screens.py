@@ -1153,13 +1153,21 @@ class TurnDetailModal(ModalScreen):
 
     def _raw_counts_text(self) -> str:
         t = self._turn
-        return (
+        out_mark = "≈" if t.get("out_estimated") else ""
+        text = (
             f"Raw:      in {short_tokens(t.get('in_tokens', 0))}   "
-            f"out {short_tokens(t.get('out_tokens', 0))}   "
+            f"out {out_mark}{short_tokens(t.get('out_tokens', 0))}   "
             f"cache_r {short_tokens(t.get('cache_r', 0))}   "
             f"cache_w {short_tokens(t.get('cache_w', 0))}   "
             f"ctx {short_tokens(t.get('ctx', 0))}"
         )
+        if out_mark:
+            text += (
+                "\n          (the transcript never recorded this turn's"
+                " final usage — out is a content-length estimate, or the"
+                " booked partial count where that was larger)"
+            )
+        return text
 
     def _tool_calls_text(self, tool_calls: list[dict]) -> str:
         import json
