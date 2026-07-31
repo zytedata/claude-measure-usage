@@ -229,6 +229,25 @@ class TestFindSubagentTranscripts:
         assert any("agent-child1.jsonl" in p for p in paths)
         assert any("agent-parent1.jsonl" in p for p in paths)
 
+    def test_workflow_subagents_found(self, tmp_path):
+        # Workflow-spawned agents live one level deeper, under
+        # subagents/workflows/wf_*/ — they must be discovered too.
+        transcript = tmp_path / "session.jsonl"
+        transcript.write_text("")
+        direct = tmp_path / "session" / "subagents"
+        direct.mkdir(parents=True)
+        (direct / "agent-a1.jsonl").write_text(
+            _subagent_entry("2026-04-07T10:00:01Z"))
+        wf = direct / "workflows" / "wf_12345678-abc"
+        wf.mkdir(parents=True)
+        (wf / "agent-a2.jsonl").write_text(
+            _subagent_entry("2026-04-07T10:00:02Z"))
+
+        results = measure_usage.find_subagent_transcripts(str(transcript), 0)
+
+        names = sorted(os.path.basename(r["path"]) for r in results)
+        assert names == ["agent-a1.jsonl", "agent-a2.jsonl"]
+
 
 # ---------------------------------------------------------------------------
 # Token helpers
@@ -369,6 +388,108 @@ class TestBuildAgentTree:
         assert tree[0]["call_tool"] == "Agent"
         assert tree[0]["call_turn"] == 1
 
+    def test_workflow_agent_attributed_to_workflow_call(self, tmp_path):
+        """Workflow agents match the Workflow call via toolUseResult.runId.
+
+        The runId equals the agent's ``workflows/<runId>/`` directory
+        name, giving a deterministic parent — and a real call_turn, so
+        the detail view can attach the agent under the spawning turn
+        instead of dropping it from the timeline. The description
+        comes from the result's ``workflowName`` because inline-script
+        calls carry no name in their input.
+        """
+        transcript = _write_workflow_fixture(tmp_path)
+
+        main_parsed = measure_usage.parse_transcript(transcript)
+        assert main_parsed["agent_id_to_tool_use"] == {
+            "wf_f4443693-f50": "tuse_wf_1",
+        }
+
+        sub_infos = measure_usage.find_subagent_transcripts(transcript, 0)
+        tree = measure_usage.build_agent_tree(transcript, main_parsed, sub_infos)
+
+        assert len(tree) == 1
+        node = tree[0]
+        assert node["call_tool"] == "Workflow"
+        assert node["call_description"] == "code-review"
+        assert node["call_turn"] == 1
+        assert node["tokens_by_model"]["claude-sonnet-4-6"]["output_tokens"] == 5
+
+    def test_workflow_agent_without_run_link_is_child_of_main(self, tmp_path):
+        """A workflow agent with no runId link still lands in the tree.
+
+        E.g. the workflow was still running when the transcript was
+        captured, so the Workflow call has no tool_result (and no
+        runId) yet. The agent must fall back to being a child of
+        main — counted, just unattributed — rather than invisible.
+        """
+        transcript = _write_workflow_fixture(tmp_path, with_run_link=False)
+
+        main_parsed = measure_usage.parse_transcript(transcript)
+        sub_infos = measure_usage.find_subagent_transcripts(transcript, 0)
+        tree = measure_usage.build_agent_tree(transcript, main_parsed, sub_infos)
+
+        assert len(tree) == 1
+        node = tree[0]
+        assert node["call_tool"] is None
+        assert node["call_turn"] is None
+        assert node["tokens_by_model"]["claude-sonnet-4-6"]["output_tokens"] == 5
+
+    def test_workflow_agent_never_timestamp_matched(self, tmp_path):
+        """Workflow agents skip the timestamp heuristic entirely.
+
+        They start whenever a workflow concurrency slot frees up, so
+        proximity to an Agent/Skill call is a coincidence. Here a
+        legacy Skill call (no agentId link) fires 50 ms before the
+        workflow agent starts; the agent must still fall back to
+        child-of-main rather than being adopted by the Skill call.
+        """
+        transcript = tmp_path / "session.jsonl"
+        entries = [
+            {
+                "type": "user",
+                "message": {"role": "user", "content": "kick off"},
+                "uuid": "u1",
+                "timestamp": "2026-04-07T10:00:00Z",
+                "sessionId": "s",
+            },
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "model": "claude-sonnet-4-6",
+                    "content": [{
+                        "type": "tool_use",
+                        "id": "tuse_skill_1",
+                        "name": "Skill",
+                        "input": {"skill": "scrape-explore-site"},
+                    }],
+                    "usage": {
+                        "input_tokens": 10, "output_tokens": 5,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 100,
+                    },
+                },
+                "uuid": "a1",
+                "timestamp": "2026-04-07T10:00:01.000Z",
+                "sessionId": "s",
+            },
+        ]
+        with transcript.open("w") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        wf_dir = tmp_path / "session" / "subagents" / "workflows" / "wf_1"
+        wf_dir.mkdir(parents=True)
+        (wf_dir / "agent-a9.jsonl").write_text(
+            _subagent_entry("2026-04-07T10:00:01.050Z"))
+
+        main_parsed = measure_usage.parse_transcript(str(transcript))
+        sub_infos = measure_usage.find_subagent_transcripts(str(transcript), 0)
+        tree = measure_usage.build_agent_tree(str(transcript), main_parsed, sub_infos)
+
+        assert len(tree) == 1
+        assert tree[0]["call_tool"] is None
+
 
 def _write_agent_id_fixture(tmp_path, sub_start):
     """Build a minimal forked-Skill transcript with an agentId link.
@@ -474,6 +595,102 @@ def _write_agent_id_fixture(tmp_path, sub_start):
     sub_meta = subagents_dir / f"agent-{agent_id}.meta.json"
     sub_meta.write_text(json.dumps({"agentType": "general-purpose"}))
     return str(transcript), agent_id
+
+
+def _subagent_entry(ts):
+    """One-line subagent transcript: a single assistant entry at ``ts``."""
+    return json.dumps({
+        "type": "assistant", "uuid": "sa1", "timestamp": ts,
+        "sessionId": "sub", "isSidechain": True,
+        "message": {
+            "role": "assistant", "id": "m1",
+            "model": "claude-sonnet-4-6",
+            "content": [{"type": "text", "text": "hi"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "output_tokens": 5,
+                      "cache_creation_input_tokens": 0,
+                      "cache_read_input_tokens": 0},
+        },
+    }) + "\n"
+
+
+def _write_workflow_fixture(tmp_path, with_run_link=True):
+    """Build a minimal transcript with a Workflow call and one workflow agent.
+
+    Main session has one inline-script Workflow tool_use
+    (``tuse_wf_1``, no ``name`` in the input) whose tool_result
+    carries ``toolUseResult.runId`` and ``workflowName``. The spawned
+    agent transcript lives under ``subagents/workflows/<runId>/`` and
+    starts seconds after the call — far beyond the 100 ms timestamp
+    tolerance — so only the runId link can attribute it. With
+    ``with_run_link=False`` the tool_result entry is omitted, modeling
+    a workflow still running when the transcript was captured.
+    """
+    run_id = "wf_f4443693-f50"
+    transcript = tmp_path / "session.jsonl"
+    entries = [
+        {
+            "type": "user",
+            "message": {"role": "user", "content": "kick off"},
+            "uuid": "u1",
+            "timestamp": "2026-04-07T10:00:00Z",
+            "sessionId": "s",
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "model": "claude-sonnet-4-6",
+                "content": [{
+                    "type": "tool_use",
+                    "id": "tuse_wf_1",
+                    "name": "Workflow",
+                    "input": {"script": "export const meta = {...}"},
+                }],
+                "usage": {
+                    "input_tokens": 10, "output_tokens": 5,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 100,
+                },
+            },
+            "uuid": "a1",
+            "timestamp": "2026-04-07T10:00:01.000Z",
+            "sessionId": "s",
+        },
+    ]
+    if with_run_link:
+        entries.append({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "tuse_wf_1",
+                    "content": "workflow launched",
+                }],
+            },
+            "uuid": "u2",
+            "timestamp": "2026-04-07T10:00:02Z",
+            "sessionId": "s",
+            "toolUseResult": {
+                "status": "async_launched",
+                "taskId": "t1",
+                "taskType": "local_workflow",
+                "workflowName": "code-review",
+                "runId": run_id,
+            },
+        })
+    with transcript.open("w") as f:
+        for e in entries:
+            f.write(json.dumps(e) + "\n")
+
+    wf_dir = tmp_path / "session" / "subagents" / "workflows" / run_id
+    wf_dir.mkdir(parents=True)
+    (wf_dir / "agent-a2c66d6f18e701d80.jsonl").write_text(
+        _subagent_entry("2026-04-07T10:00:07Z"))
+    (wf_dir / "agent-a2c66d6f18e701d80.meta.json").write_text(
+        json.dumps({"agentType": "workflow-subagent", "spawnDepth": 1}))
+    return str(transcript)
 
 
 class TestFormatTree:

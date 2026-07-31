@@ -24,6 +24,10 @@ ALL_TOKEN_KEYS = TOKEN_KEYS + CACHE_TIER_KEYS
 _CHARS_PER_TOKEN = 4
 SUBAGENT_MATCH_TOLERANCE_S = 0.1  # 100ms
 
+# Subagent-spawning tools tracked for tree building, mapped to the
+# tool_use input key that carries the human-readable description.
+_AGENT_CALL_DESC_KEYS = {"Agent": "description", "Skill": "skill", "Workflow": "name"}
+
 # Non-turn entry types dropped from the per-turn timeline.
 # All pure client-side bookkeeping with no UX or debugging value:
 #   - file-history-snapshot: /undo feature state
@@ -129,6 +133,10 @@ def read_subagent_meta(jsonl_path):
 def find_subagent_transcripts(transcript_path, start_ts):
     """Find subagent transcripts that started after start_ts.
 
+    Regular subagents live directly in ``subagents/``; agents spawned
+    by the Workflow tool are written one level deeper, under
+    ``subagents/workflows/wf_*/``. Both are returned.
+
     Returns list of dicts with path, start_ts, and meta.
     """
     session_dir = Path(transcript_path).with_suffix("")
@@ -136,7 +144,11 @@ def find_subagent_transcripts(transcript_path, start_ts):
     if not subagents_dir.exists():
         return []
     results = []
-    for p in sorted(subagents_dir.glob("agent-*.jsonl")):
+    candidates = sorted(
+        list(subagents_dir.glob("agent-*.jsonl"))
+        + list(subagents_dir.glob("workflows/*/agent-*.jsonl"))
+    )
+    for p in candidates:
         if "compact" in p.name:
             continue
         for entry in _iter_transcript(str(p)):
@@ -354,27 +366,47 @@ class _TranscriptParser:
         self._capture_agent_id_link(entry, content)
 
     def _capture_agent_id_link(self, entry, content):
-        """Record agentId → tool_use_id for forked subagent results.
+        """Record agentId/runId → tool_use_id for spawned-agent results.
 
         Claude Code writes an ``agentId`` on the tool_result entry
         (``toolUseResult.agentId``) whenever a Skill/Agent tool
-        spawned a subagent transcript at ``subagents/agent-<id>.jsonl``.
-        Pairing that id with the sibling tool_result's ``tool_use_id``
-        gives build_agent_tree a deterministic parent match that does
-        not depend on timestamp proximity.
+        spawned a subagent transcript at ``subagents/agent-<id>.jsonl``,
+        and a ``runId`` on Workflow results whose agents land under
+        ``subagents/workflows/<runId>/``. Pairing that id with the
+        sibling tool_result's ``tool_use_id`` gives build_agent_tree
+        a deterministic parent match that does not depend on
+        timestamp proximity.
         """
         tur = entry.get("toolUseResult")
         if not isinstance(tur, dict):
             return
-        agent_id = tur.get("agentId")
-        if not agent_id or not isinstance(content, list):
+        link_id = tur.get("agentId") or tur.get("runId")
+        if not link_id or not isinstance(content, list):
             return
         for block in content:
             if isinstance(block, dict) and block.get("type") == "tool_result":
                 tool_use_id = block.get("tool_use_id")
                 if tool_use_id:
-                    self.agent_id_to_tool_use[agent_id] = tool_use_id
+                    self.agent_id_to_tool_use[link_id] = tool_use_id
+                    self._backfill_workflow_name(tool_use_id, tur)
                 break
+
+    def _backfill_workflow_name(self, tool_use_id, tur):
+        """Fill a Workflow call's description from the result's workflowName.
+
+        Inline-script Workflow calls carry no ``name`` in their input
+        (the name lives inside the script's meta block), so the call is
+        recorded with an empty description; the result's ``workflowName``
+        is authoritative for both inline and named invocations.
+        """
+        wf_name = tur.get("workflowName")
+        if not wf_name:
+            return
+        for call in self.agent_calls:
+            if call["tool_use_id"] == tool_use_id:
+                if not call["description"]:
+                    call["description"] = wf_name
+                return
 
     @staticmethod
     def _is_user_text_message(entry, msg):
@@ -637,13 +669,13 @@ class _TranscriptParser:
         self.tool_uses[name] = self.tool_uses.get(name, 0) + 1
         inp = block.get("input", {}) or {}
 
-        # Track Agent/Skill calls for tree building
-        if name in ("Agent", "Skill") and self.entry_ts is not None:
-            desc = inp.get("description", "") if name == "Agent" else inp.get("skill", "")
+        # Track Agent/Skill/Workflow calls for tree building
+        desc_key = _AGENT_CALL_DESC_KEYS.get(name)
+        if desc_key and self.entry_ts is not None:
             self.agent_calls.append({
                 "ts": self.entry_ts,
                 "name": name,
-                "description": desc,
+                "description": inp.get(desc_key, ""),
                 "turn_num": self.turn_count,
                 "tool_use_id": block.get("id", ""),
             })
@@ -738,8 +770,8 @@ def build_agent_tree(main_path, main_parsed, subagent_infos):
     # Collect all Agent/Skill calls tagged by caller path
     all_calls = _collect_agent_calls(main_path, main_parsed, subagent_infos, sub_parsed)
 
-    # Build agent_id -> (caller_path, name, description, turn_num) map
-    # from toolUseResult.agentId links observed in every caller's
+    # Build agentId/runId -> (caller_path, name, description, turn_num)
+    # map from toolUseResult links observed in every caller's
     # transcript (main + nested subagents). This supersedes the
     # timestamp heuristic whenever Claude Code emitted the link.
     agent_id_to_call = _build_agent_id_index(
@@ -784,29 +816,34 @@ def build_agent_tree(main_path, main_parsed, subagent_infos):
 
 
 def _collect_agent_calls(main_path, main_parsed, subagent_infos, sub_parsed):
-    """Collect all Agent/Skill calls from main + subagent transcripts.
+    """Collect Agent/Skill calls from main + subagent transcripts.
+
+    Workflow calls are excluded: workflow agents are matched by runId
+    only (see _match_subagents_to_parents), never by timestamp, and
+    keeping Workflow calls out of the pool stops regular subagents
+    from ever timestamp-matching one.
 
     Returns list of (caller_path, call_ts, tool_name, description, call_turn).
     """
+    sources = [(main_path, main_parsed)]
+    sources += [(info["path"], sub_parsed[info["path"]]) for info in subagent_infos]
     all_calls = []
-    for call in main_parsed["agent_calls"]:
-        all_calls.append((
-            main_path, call["ts"], call["name"], call["description"], call.get("turn_num"),
-        ))
-    for info in subagent_infos:
-        for call in sub_parsed[info["path"]]["agent_calls"]:
+    for caller_path, parsed in sources:
+        for call in parsed["agent_calls"]:
+            if call["name"] == "Workflow":
+                continue
             all_calls.append((
-                info["path"], call["ts"], call["name"], call["description"], call.get("turn_num"),
+                caller_path, call["ts"], call["name"], call["description"], call.get("turn_num"),
             ))
     return all_calls
 
 
 def _build_agent_id_index(main_path, main_parsed, subagent_infos, sub_parsed):
-    """Index every agentId link into (caller_path, name, description, turn_num).
+    """Index every agentId/runId link into (caller_path, name, description, turn_num).
 
     Walks each parsed transcript's ``agent_id_to_tool_use`` map and
-    pairs the tool_use_id back to the originating Agent/Skill call
-    in that same transcript's ``agent_calls``. A nested subagent's
+    pairs the tool_use_id back to the originating Agent/Skill/Workflow
+    call in that same transcript's ``agent_calls``. A nested subagent's
     links end up anchored to *its* transcript path, which is how the
     tree captures grandchildren without timestamp guesswork.
     """
@@ -848,30 +885,52 @@ def _subagent_id_from_path(path):
     return name[len("agent-"):-len(".jsonl")]
 
 
+def _workflow_run_id_from_path(path):
+    """Extract the wf_* run id for a workflow-spawned agent transcript.
+
+    Workflow agents live at ``subagents/workflows/<runId>/agent-*.jsonl``,
+    where the directory name equals the ``runId`` written on the
+    Workflow call's tool_result. Returns '' for regular subagent paths.
+    """
+    parent = Path(path).parent
+    if parent.parent.name == "workflows":
+        return parent.name
+    return ""
+
+
 def _match_subagents_to_parents(main_path, subagent_infos, all_calls, agent_id_to_call):
     """Match each subagent to a parent.
 
-    Prefers the deterministic agentId link emitted on the parent's
-    tool_result (``toolUseResult.agentId``). Falls back to nearest-
+    Prefers the deterministic link emitted on the spawning call's
+    tool_result: ``toolUseResult.agentId`` for Agent/Skill calls,
+    ``toolUseResult.runId`` (equal to the agent's ``workflows/<runId>/``
+    directory name) for Workflow calls. Falls back to nearest-
     preceding-call-by-timestamp only when no such link exists — this
     keeps older transcripts (pre-agentId) working while fixing the
     case where subagent startup latency exceeds the legacy 100 ms
     timestamp tolerance and the row would otherwise disappear from
-    the timeline.
+    the timeline. Workflow agents never timestamp-match: they queue
+    behind concurrency slots, so their start time is unrelated to any
+    Agent/Skill call — an unlinked one goes straight to the
+    child-of-main fallback.
 
     Returns dict: parent_path -> list of (info, call_tool, call_description, call_turn).
     """
     children_map = {}
     for info in subagent_infos:
-        best_match = agent_id_to_call.get(_subagent_id_from_path(info["path"]))
+        run_id = _workflow_run_id_from_path(info["path"])
+        if run_id:
+            best_match = agent_id_to_call.get(run_id)
+        else:
+            best_match = agent_id_to_call.get(_subagent_id_from_path(info["path"]))
 
-        if best_match is None:
-            best_delta = float("inf")
-            for caller_path, call_ts, tool_name, desc, call_turn in all_calls:
-                delta = info["start_ts"] - call_ts
-                if 0 <= delta <= SUBAGENT_MATCH_TOLERANCE_S and delta < best_delta:
-                    best_delta = delta
-                    best_match = (caller_path, tool_name, desc, call_turn)
+            if best_match is None:
+                best_delta = float("inf")
+                for caller_path, call_ts, tool_name, desc, call_turn in all_calls:
+                    delta = info["start_ts"] - call_ts
+                    if 0 <= delta <= SUBAGENT_MATCH_TOLERANCE_S and delta < best_delta:
+                        best_delta = delta
+                        best_match = (caller_path, tool_name, desc, call_turn)
 
         if best_match:
             parent_path, call_tool, call_desc, call_turn = best_match
