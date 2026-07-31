@@ -1,4 +1,4 @@
-name: tests
+name: checks
 
 on:
   push:
@@ -10,18 +10,11 @@ permissions:
   contents: read
 
 jobs:
-  tests:
+  pre-commit:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
-        with:
-          python-version: ${{ matrix.python-version }}
-          enable-cache: true
-      - run: uvx --with tox-uv tox -e "py$(tr -d . <<< '${{ matrix.python-version }}')"
+      - run: uvx pre-commit run --all-files --show-diff-on-failure

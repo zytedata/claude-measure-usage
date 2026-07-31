@@ -29,20 +29,24 @@ SUBAGENT_MATCH_TOLERANCE_S = 0.1  # 100ms
 #   - file-history-snapshot: /undo feature state
 #   - queue-operation: input queue enqueue/dequeue (user pastes,
 #     task notifications) — noisy and opaque
-_NONTURN_SKIP_TYPES = frozenset({
-    "file-history-snapshot",
-    "queue-operation",
-})
+_NONTURN_SKIP_TYPES = frozenset(
+    {
+        "file-history-snapshot",
+        "queue-operation",
+    }
+)
 
 # (type, subtype) pairs dropped from the per-turn timeline:
 #   - system/turn_duration: per-turn wallclock marker, redundant
 #     with the t+ column.
 #   - system/local_command: shell escape (`!cmd`) output, mirrors
 #     the user-side <local-command-*> shims that are also dropped.
-_NONTURN_SKIP_SUBTYPES = frozenset({
-    ("system", "turn_duration"),
-    ("system", "local_command"),
-})
+_NONTURN_SKIP_SUBTYPES = frozenset(
+    {
+        ("system", "turn_duration"),
+        ("system", "local_command"),
+    }
+)
 
 
 def _estimate_tokens(text):
@@ -60,6 +64,7 @@ def parse_ts(ts_str):
 # ---------------------------------------------------------------------------
 # Token helpers
 # ---------------------------------------------------------------------------
+
 
 def merge_tokens_by_model(a, b):
     """Merge two tokens_by_model dicts, summing values."""
@@ -85,6 +90,7 @@ def total_from_by_model(tokens_by_model):
 # ---------------------------------------------------------------------------
 # Transcript path resolution
 # ---------------------------------------------------------------------------
+
 
 def find_transcript_path(session_id, cwd=None):
     """Resolve transcript path from session ID and working directory.
@@ -113,6 +119,7 @@ def find_transcript_path(session_id, cwd=None):
 # ---------------------------------------------------------------------------
 # Subagent discovery
 # ---------------------------------------------------------------------------
+
 
 def read_subagent_meta(jsonl_path):
     """Read .meta.json alongside a subagent JSONL file.
@@ -144,11 +151,13 @@ def find_subagent_transcripts(transcript_path, start_ts):
             if ts:
                 ts_float = parse_ts(ts)
                 if ts_float >= start_ts:
-                    results.append({
-                        "path": str(p),
-                        "start_ts": ts_float,
-                        "meta": read_subagent_meta(str(p)),
-                    })
+                    results.append(
+                        {
+                            "path": str(p),
+                            "start_ts": ts_float,
+                            "meta": read_subagent_meta(str(p)),
+                        }
+                    )
                 break
     return results
 
@@ -156,6 +165,7 @@ def find_subagent_transcripts(transcript_path, start_ts):
 # ---------------------------------------------------------------------------
 # JSONL iteration
 # ---------------------------------------------------------------------------
+
 
 def _iter_transcript(path):
     """Yield parsed JSON objects from a JSONL file, skipping bad lines."""
@@ -176,6 +186,7 @@ def _iter_transcript(path):
 # ---------------------------------------------------------------------------
 # Transcript parsing
 # ---------------------------------------------------------------------------
+
 
 def parse_transcript(transcript_path, start_ts=None):
     """Parse a JSONL transcript, optionally from start_ts onward.
@@ -453,6 +464,7 @@ class _TranscriptParser:
         if self._is_tool_result_only_user_entry(entry, msg):
             return
         from .nonturn_rows import build_nonturn_label
+
         result = build_nonturn_label(entry, msg)
         if result is None:
             return
@@ -606,12 +618,17 @@ class _TranscriptParser:
         tool_chars = self._cur_out_tool_chars
         if self._cur_stop_seen:
             self._output_estimator.add_complete_turn(
-                model, text_chars, tool_chars,
+                model,
+                text_chars,
+                tool_chars,
                 self._cur_counted.get("output_tokens", 0),
             )
         elif model != "<synthetic>":
             self._output_estimator.add_missing_turn(
-                row, model, text_chars, tool_chars,
+                row,
+                model,
+                text_chars,
+                tool_chars,
             )
 
     def _finalize(self):
@@ -627,9 +644,7 @@ class _TranscriptParser:
             return
         self._finalized = True
         self._close_turn()
-        self.output_estimated.update(
-            self._output_estimator.apply(self.tokens_by_model)
-        )
+        self.output_estimated.update(self._output_estimator.apply(self.tokens_by_model))
 
     def _handle_tool_use(self, block):
         """Handle a tool_use content block."""
@@ -639,22 +654,28 @@ class _TranscriptParser:
 
         # Track Agent/Skill calls for tree building
         if name in ("Agent", "Skill") and self.entry_ts is not None:
-            desc = inp.get("description", "") if name == "Agent" else inp.get("skill", "")
-            self.agent_calls.append({
-                "ts": self.entry_ts,
-                "name": name,
-                "description": desc,
-                "turn_num": self.turn_count,
-                "tool_use_id": block.get("id", ""),
-            })
+            desc = (
+                inp.get("description", "") if name == "Agent" else inp.get("skill", "")
+            )
+            self.agent_calls.append(
+                {
+                    "ts": self.entry_ts,
+                    "name": name,
+                    "description": desc,
+                    "turn_num": self.turn_count,
+                    "tool_use_id": block.get("id", ""),
+                }
+            )
 
         # Attach tool call to the current turn for label rendering.
         if self._cur_turn is not None:
-            self._cur_turn["tool_calls"].append({
-                "name": name,
-                "input": inp,
-                "id": block.get("id", ""),
-            })
+            self._cur_turn["tool_calls"].append(
+                {
+                    "name": name,
+                    "input": inp,
+                    "id": block.get("id", ""),
+                }
+            )
 
         invoc = {
             "name": name,
@@ -698,20 +719,23 @@ class _TranscriptParser:
             self._cur_turn["last_tool_result_ts"] = max(prior, self.entry_ts)
 
         if invoc is None:
-            self.tool_invocations.append({
-                "name": "unknown",
-                "model": self.model,
-                "output_est": 0,
-                "input_est": input_est,
-                "result_turn": self.turn_count,
-                "call_ts": None,
-                "result_ts": self.entry_ts,
-            })
+            self.tool_invocations.append(
+                {
+                    "name": "unknown",
+                    "model": self.model,
+                    "output_est": 0,
+                    "input_est": input_est,
+                    "result_turn": self.turn_count,
+                    "call_ts": None,
+                    "result_ts": self.entry_ts,
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
 # Agent tree building
 # ---------------------------------------------------------------------------
+
 
 def build_agent_tree(main_path, main_parsed, subagent_infos):
     """Build a tree of agent relationships from timestamp matching.
@@ -743,12 +767,18 @@ def build_agent_tree(main_path, main_parsed, subagent_infos):
     # transcript (main + nested subagents). This supersedes the
     # timestamp heuristic whenever Claude Code emitted the link.
     agent_id_to_call = _build_agent_id_index(
-        main_path, main_parsed, subagent_infos, sub_parsed,
+        main_path,
+        main_parsed,
+        subagent_infos,
+        sub_parsed,
     )
 
     # Match each subagent to a parent
     children_map = _match_subagents_to_parents(
-        main_path, subagent_infos, all_calls, agent_id_to_call,
+        main_path,
+        subagent_infos,
+        all_calls,
+        agent_id_to_call,
     )
 
     # Build tree recursively
@@ -790,14 +820,26 @@ def _collect_agent_calls(main_path, main_parsed, subagent_infos, sub_parsed):
     """
     all_calls = []
     for call in main_parsed["agent_calls"]:
-        all_calls.append((
-            main_path, call["ts"], call["name"], call["description"], call.get("turn_num"),
-        ))
+        all_calls.append(
+            (
+                main_path,
+                call["ts"],
+                call["name"],
+                call["description"],
+                call.get("turn_num"),
+            )
+        )
     for info in subagent_infos:
         for call in sub_parsed[info["path"]]["agent_calls"]:
-            all_calls.append((
-                info["path"], call["ts"], call["name"], call["description"], call.get("turn_num"),
-            ))
+            all_calls.append(
+                (
+                    info["path"],
+                    call["ts"],
+                    call["name"],
+                    call["description"],
+                    call.get("turn_num"),
+                )
+            )
     return all_calls
 
 
@@ -845,7 +887,7 @@ def _subagent_id_from_path(path):
     name = os.path.basename(path)
     if not name.startswith("agent-") or not name.endswith(".jsonl"):
         return ""
-    return name[len("agent-"):-len(".jsonl")]
+    return name[len("agent-") : -len(".jsonl")]
 
 
 def _match_subagents_to_parents(main_path, subagent_infos, all_calls, agent_id_to_call):

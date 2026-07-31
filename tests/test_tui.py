@@ -51,6 +51,7 @@ class TestDiscoverProjects:
         # Make "recent" genuinely more recent.
         now = time.time()
         import os
+
         os.utime(stale / "a.jsonl", (now - 3600, now - 3600))
         os.utime(recent / "a.jsonl", (now - 60, now - 60))
         os.utime(recent / "b.jsonl", (now - 30, now - 30))
@@ -131,9 +132,7 @@ class TestDiscoverSessions:
         (proj / "basic.jsonl").write_bytes(
             (FIXTURES / "basic_session.jsonl").read_bytes()
         )
-        (proj / "multi.jsonl").write_bytes(
-            (FIXTURES / "multi_tool.jsonl").read_bytes()
-        )
+        (proj / "multi.jsonl").write_bytes((FIXTURES / "multi_tool.jsonl").read_bytes())
         return proj
 
     def test_empty_dir(self, tmp_path):
@@ -288,9 +287,9 @@ class TestBuildDetailRows:
         # Every subagent row must be preceded by a turn row
         for i, k in enumerate(kinds):
             if k == "subagent":
-                assert any(
-                    kinds[j] == "turn" for j in range(i - 1, -1, -1)
-                ), f"subagent at row {i} has no preceding turn"
+                assert any(kinds[j] == "turn" for j in range(i - 1, -1, -1)), (
+                    f"subagent at row {i} has no preceding turn"
+                )
 
     def test_parent_turn_cost_rolls_up_subagent_subtree(self):
         # When a turn spawns subagents, the parent's cost/own
@@ -305,7 +304,11 @@ class TestBuildDetailRows:
         parent_turn = None
         sub_rows: list = []
         for i, r in enumerate(rows):
-            if r.kind == "turn" and i + 1 < len(rows) and rows[i + 1].kind == "subagent":
+            if (
+                r.kind == "turn"
+                and i + 1 < len(rows)
+                and rows[i + 1].kind == "subagent"
+            ):
                 parent_turn = r
                 for j in range(i + 1, len(rows)):
                     if rows[j].kind != "subagent":
@@ -318,6 +321,7 @@ class TestBuildDetailRows:
         # because parent also has its own self-cost, but strict
         # inequality would indicate a rollup bug.)
         import re
+
         def to_num(s):
             m = re.match(r"([\d.]+)([KM]?)", s or "")
             if not m:
@@ -443,9 +447,7 @@ class TestColumnWidthsFitSortIndicator:
     def test_every_sortable_column_has_room_for_arrow(self):
         from claude_measure_usage.tui.screens import SessionDetailScreen
 
-        sortable_columns = {
-            m.column_id for m in detail_rows.SORT_MODES
-        }
+        sortable_columns = {m.column_id for m in detail_rows.SORT_MODES}
         for label, key, width in SessionDetailScreen._column_spec():
             if key in sortable_columns:
                 required = len(label) + 2  # " ▼"
@@ -461,7 +463,12 @@ class TestSortModes:
     def test_cycle_order_matches_column_order(self):
         ids = [m.id for m in detail_rows.SORT_MODES]
         assert ids == [
-            "natural", "took", "cost", "own", "carry", "caused",
+            "natural",
+            "took",
+            "cost",
+            "own",
+            "carry",
+            "caused",
         ]
 
     def test_natural_highlights_num_column(self):
@@ -781,6 +788,7 @@ class TestTinyModel:
 # ProjectScreen (pilot smoke test)
 # ---------------------------------------------------------------------------
 
+
 class TestNonturnDetailModal:
     """Unit tests for the non-turn modal's per-kind renderers.
 
@@ -859,9 +867,7 @@ class TestNonturnDetailModal:
                 "removedNames": ["Monitor"],
             }
         }
-        body = self._modal(
-            "attachment:deferred_tools_delta", entry
-        )._body_text()
+        body = self._modal("attachment:deferred_tools_delta", entry)._body_text()
         assert "added (2)" in body
         assert "+ WebFetch" in body
         assert "removed (1)" in body
@@ -954,9 +960,7 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
-    def test_project_screen_reload_picks_up_new_project(
-        self, tmp_path, monkeypatch
-    ):
+    def test_project_screen_reload_picks_up_new_project(self, tmp_path, monkeypatch):
         """``r`` on the project picker rescans ``~/.claude/projects``.
 
         Mounts the app against a fake tree with two projects,
@@ -988,9 +992,7 @@ class TestProjectScreenPilot:
                 # Park the cursor on the current top-of-list entry
                 # so we can prove reload preserved it.
                 initial_cursor = table.cursor_row
-                preserved_key = (
-                    app.screen._entries[initial_cursor].project_dir
-                )
+                preserved_key = app.screen._entries[initial_cursor].project_dir
 
                 # Add a brand-new project directory on disk.
                 (projects_root / "-home-user-gamma").mkdir()
@@ -1000,23 +1002,18 @@ class TestProjectScreenPilot:
                 await pilot.pause()
 
                 table = app.screen.query_one(DataTable)
-                assert table.row_count == 3, (
-                    "reload should pick up the new project"
-                )
+                assert table.row_count == 3, "reload should pick up the new project"
                 # Cursor should still be on the same project that
                 # was highlighted before the reload.
                 new_cursor = table.cursor_row
-                assert (
-                    app.screen._entries[new_cursor].project_dir
-                    == preserved_key
-                ), "cursor should survive reload"
+                assert app.screen._entries[new_cursor].project_dir == preserved_key, (
+                    "cursor should survive reload"
+                )
                 await pilot.press("q")
 
         asyncio.run(run())
 
-    def test_session_screen_reload_picks_up_new_session(
-        self, tmp_path, monkeypatch
-    ):
+    def test_session_screen_reload_picks_up_new_session(self, tmp_path, monkeypatch):
         """``r`` on the session picker re-parses every transcript.
 
         Drops a new ``.jsonl`` into the project directory after
@@ -1050,9 +1047,7 @@ class TestProjectScreenPilot:
                 assert table.row_count == 1
 
                 # Drop a second session on disk and reload.
-                shutil.copy(
-                    FIXTURES / "basic_session.jsonl", proj_dir / "b.jsonl"
-                )
+                shutil.copy(FIXTURES / "basic_session.jsonl", proj_dir / "b.jsonl")
                 await pilot.press("r")
                 await pilot.pause()
                 await app.workers.wait_for_complete()
@@ -1066,9 +1061,7 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
-    def test_loader_survives_unreadable_transcript(
-        self, tmp_path, monkeypatch
-    ):
+    def test_loader_survives_unreadable_transcript(self, tmp_path, monkeypatch):
         """An exception while loading one session must not abort the batch.
 
         Injects a transcript path that load_session will choke on
@@ -1100,10 +1093,10 @@ class TestProjectScreenPilot:
             return real_load(path)
 
         async def run():
-            with patch.object(discovery, "load_session", flaky), \
-                 patch(
-                     "claude_measure_usage.tui.screens.load_session", flaky
-                 ):
+            with (
+                patch.object(discovery, "load_session", flaky),
+                patch("claude_measure_usage.tui.screens.load_session", flaky),
+            ):
                 app = MeasureUsageApp()
                 async with app.run_test() as pilot:
                     await pilot.pause()
@@ -1131,7 +1124,6 @@ class TestProjectScreenPilot:
         """
         import asyncio
         import shutil
-        from textual.widgets import DataTable
         from claude_measure_usage.tui.app import MeasureUsageApp
         from claude_measure_usage.tui.screens import SessionDetailScreen
 
@@ -1183,9 +1175,7 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
-    def test_slash_opens_filter_and_esc_cancels(
-        self, tmp_path, monkeypatch
-    ):
+    def test_slash_opens_filter_and_esc_cancels(self, tmp_path, monkeypatch):
         """/ opens the filter input, typing filters, Esc cancels."""
         import asyncio
         import shutil
@@ -1305,9 +1295,7 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
-    def test_active_sort_column_header_highlighted(
-        self, tmp_path, monkeypatch
-    ):
+    def test_active_sort_column_header_highlighted(self, tmp_path, monkeypatch):
         """The active sort column header is rendered with ``▼``
         and a bold style; other headers reset to plain labels."""
         import asyncio
@@ -1356,7 +1344,6 @@ class TestProjectScreenPilot:
         carry → caused → natural."""
         import asyncio
         import shutil
-        from textual.widgets import DataTable
         from claude_measure_usage.tui.app import MeasureUsageApp
         from claude_measure_usage.tui.screens import SessionDetailScreen
 
@@ -1393,9 +1380,7 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
-    def test_turn_modal_opens_and_lists_subagents(
-        self, tmp_path, monkeypatch
-    ):
+    def test_turn_modal_opens_and_lists_subagents(self, tmp_path, monkeypatch):
         """Enter on a turn-with-subagents row opens the modal and
         populates its subagent OptionList.
 
@@ -1410,18 +1395,14 @@ class TestProjectScreenPilot:
         from textual.coordinate import Coordinate
         from claude_measure_usage.tui.app import MeasureUsageApp
         from claude_measure_usage.tui.screens import (
-            ProjectScreen,
             SessionDetailScreen,
-            SessionScreen,
             TurnDetailModal,
         )
 
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-sub"
         proj_dir.mkdir(parents=True)
-        shutil.copy(
-            FIXTURES / "with_subagents.jsonl", proj_dir / "session.jsonl"
-        )
+        shutil.copy(FIXTURES / "with_subagents.jsonl", proj_dir / "session.jsonl")
         # Subagent transcripts live in a sibling dir named after the
         # session; the fixture already has that layout at
         # fixtures/with_subagents/ — copy it across.
@@ -1445,7 +1426,8 @@ class TestProjectScreenPilot:
                 rows = detail._rows
                 turn_with_sub = next(
                     (
-                        i for i, r in enumerate(rows)
+                        i
+                        for i, r in enumerate(rows)
                         if r.kind == "turn"
                         and i + 1 < len(rows)
                         and rows[i + 1].kind == "subagent"
@@ -1473,9 +1455,7 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
-    def test_question_mark_opens_help_modal_on_each_screen(
-        self, tmp_path, monkeypatch
-    ):
+    def test_question_mark_opens_help_modal_on_each_screen(self, tmp_path, monkeypatch):
         """Pressing ``?`` on every screen opens the HelpModal
         with that screen's BINDINGS. Esc closes it cleanly back
         to the originating screen."""
@@ -1550,9 +1530,7 @@ class TestProjectScreenPilot:
 
         asyncio.run(run())
 
-    def test_i_on_session_picker_opens_summary_modal(
-        self, tmp_path, monkeypatch
-    ):
+    def test_i_on_session_picker_opens_summary_modal(self, tmp_path, monkeypatch):
         """Pressing ``i`` on the session picker opens the summary
         modal for the highlighted session without drilling into
         the detail screen."""
@@ -1618,9 +1596,7 @@ class TestProjectScreenPilot:
         projects_root = tmp_path / ".claude" / "projects"
         proj_dir = projects_root / "-tmp-sub"
         proj_dir.mkdir(parents=True)
-        shutil.copy(
-            FIXTURES / "with_subagents.jsonl", proj_dir / "session.jsonl"
-        )
+        shutil.copy(FIXTURES / "with_subagents.jsonl", proj_dir / "session.jsonl")
         subagent_src = FIXTURES / "with_subagents"
         if subagent_src.exists():
             shutil.copytree(subagent_src, proj_dir / "session")
@@ -1640,8 +1616,7 @@ class TestProjectScreenPilot:
                 parent_title = app.screen._title
                 detail = app.screen
                 sub_row_idx = next(
-                    i for i, r in enumerate(detail._rows)
-                    if r.kind == "subagent"
+                    i for i, r in enumerate(detail._rows) if r.kind == "subagent"
                 )
                 table = detail.query_one(DataTable)
                 table.cursor_coordinate = Coordinate(sub_row_idx, 0)

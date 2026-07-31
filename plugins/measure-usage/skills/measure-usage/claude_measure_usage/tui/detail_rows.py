@@ -31,6 +31,7 @@ from .format import short_tokens, tiny_model
 # Cost breakdown
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class TurnCostBreakdown:
     """Everything the modal needs to explain a turn's total cost.
@@ -87,6 +88,7 @@ def turn_cost_breakdown(
 # Row dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class DetailRow:
     """A single row in the session detail DataTable.
@@ -129,6 +131,7 @@ class DetailRow:
 # ---------------------------------------------------------------------------
 # Row builder
 # ---------------------------------------------------------------------------
+
 
 def build_detail_rows(parsed: dict, tree: list[dict]) -> list[DetailRow]:
     """Produce the ordered row stream for one session's detail screen.
@@ -175,6 +178,7 @@ def build_detail_rows(parsed: dict, tree: list[dict]) -> list[DetailRow]:
 # ---------------------------------------------------------------------------
 # Row construction — turns
 # ---------------------------------------------------------------------------
+
 
 def _turn_row(
     t: dict,
@@ -283,6 +287,7 @@ def _subagent_row(child: dict, t0: float) -> DetailRow:
 # ---------------------------------------------------------------------------
 # Glued sort
 # ---------------------------------------------------------------------------
+
 
 # Mode ids -> column keys used in DetailRow.raw["sort_keys"]. The
 # UI surfaces these human-readable labels; the cycle binding walks
@@ -477,6 +482,7 @@ def _nonturn_row(r: dict, t0: float) -> DetailRow:
 # Tree helpers
 # ---------------------------------------------------------------------------
 
+
 def _children_by_call_turn(tree: list[dict]) -> dict[int, list[dict]]:
     """Group direct-child subagents by the parent turn that spawned them.
 
@@ -519,6 +525,7 @@ def _dominant_model_tokens(tokens_by_model: dict) -> str:
 # ---------------------------------------------------------------------------
 # Time formatting
 # ---------------------------------------------------------------------------
+
 
 def _first_ts(source_rows: list[dict]) -> float:
     for r in source_rows:
@@ -582,7 +589,8 @@ def _turn_span_secs(turn: dict, prev_turn: dict | None) -> float:
 
 def _fmt_subagent_took(sub_rows: list[dict]) -> str:
     timestamps = [
-        r.get("ts") for r in sub_rows
+        r.get("ts")
+        for r in sub_rows
         if r.get("ts") is not None and r.get("kind") == "turn"
     ]
     if len(timestamps) < 2:

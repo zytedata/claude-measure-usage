@@ -38,6 +38,7 @@ def build_nonturn_label(entry, msg):
 # Per-type builders
 # ---------------------------------------------------------------------------
 
+
 def _build_user(entry, msg):
     """User messages: genuine text, shims, interrupts, or tool_result wrappers.
 
@@ -143,7 +144,7 @@ def _build_system(entry, msg):
     kind = f"system:{subtype}"
     content = entry.get("content")
     if subtype == "turn_duration":
-        return (kind, f"[system:turn_duration]")
+        return (kind, "[system:turn_duration]")
     if subtype == "compact_boundary":
         meta = entry.get("compactMetadata", {}) or {}
         trig = meta.get("trigger", "")
@@ -183,8 +184,10 @@ def _build_attachment(entry, msg):
             "attachment:deferred_tools_delta",
             f"[attachment:deferred_tools_delta] {summary}",
         )
-    return (f"attachment:{atype}" if atype else "attachment",
-            f"[attachment{':' + atype if atype else ''}]")
+    return (
+        f"attachment:{atype}" if atype else "attachment",
+        f"[attachment{':' + atype if atype else ''}]",
+    )
 
 
 def _build_progress(entry, msg):
@@ -216,7 +219,7 @@ def _build_queue_operation(entry, msg):
 
 def _build_file_history_snapshot(entry, msg):
     is_update = entry.get("isSnapshotUpdate")
-    backups = ((entry.get("snapshot") or {}).get("trackedFileBackups") or {})
+    backups = (entry.get("snapshot") or {}).get("trackedFileBackups") or {}
     count = len(backups)
     tag = "update" if is_update else "base"
     suffix = f" ({count} tracked)" if count else ""
@@ -274,6 +277,7 @@ _BUILDERS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _preview(text, max_len=_PREVIEW_LEN):
     """Collapse whitespace and truncate a free-form text preview."""
     if not text:
@@ -316,6 +320,6 @@ def _short_tool_id(tool_use_id):
     stripped = tool_use_id
     for prefix in ("toolu_01", "toolu_"):
         if stripped.startswith(prefix):
-            stripped = stripped[len(prefix):]
+            stripped = stripped[len(prefix) :]
             break
     return stripped[:8] or tool_use_id[:10]

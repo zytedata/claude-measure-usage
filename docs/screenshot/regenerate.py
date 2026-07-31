@@ -18,6 +18,7 @@ would break the decode and the header would show the raw encoded name.
 Hence a fixed path under the temporary directory rather than a mktemp one.
 On macOS that path is ``/private/tmp``, which is what ``/tmp`` resolves to.
 """
+
 import asyncio
 import os
 import shutil

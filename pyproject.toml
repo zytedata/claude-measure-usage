@@ -42,6 +42,29 @@ dev = [
     "pytest",
 ]
 
+[tool.ruff.lint]
+# Pyflakes plus the error-level pycodestyle checks. The wider default set
+# flags patterns (blind excepts, mutable class defaults, try-except-pass)
+# that each need a per-site decision, so opt into those deliberately.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.bumpversion]
+current_version = "0.0.0"
+commit = true
+message = "Bump version: {current_version} → {new_version}"
+tag = true
+tag_name = "{new_version}"
+
+[[tool.bumpversion.files]]
+filename = "plugins/measure-usage/.claude-plugin/plugin.json"
+
+# Anchored so it does not also match `current_version` above.
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+regex = true
+search = '^version = "{current_version}"$'
+replace = 'version = "{new_version}"'
+
 # The package source lives under the Claude Code plugin tree so the
 # same files can be loaded by the /measure-usage skill. Point hatch
 # at that path so the built wheel still contains a top-level

@@ -27,6 +27,7 @@ from textual.widgets import (
 from textual.widgets.option_list import Option
 
 from ..metrics import compute_metrics_from_parsed, model_aware_cost_breakdown
+
 # The summary modal deliberately reuses the plain text renderer's
 # format_metrics helper so the TUI and the /measure-usage skill
 # show byte-identical session summaries. This is a controlled
@@ -38,7 +39,6 @@ from ..turns_label import short_agent_id
 from .detail_rows import (
     SORT_MODES,
     DetailRow,
-    SortMode,
     TurnCostBreakdown,
     build_detail_rows,
     filter_rows,
@@ -148,9 +148,7 @@ class ProjectScreen(Screen):
         table.cursor_coordinate = Coordinate(target_idx, 0)
         table.focus()
 
-    def on_data_table_row_selected(
-        self, event: DataTable.RowSelected
-    ) -> None:
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         row_idx = event.cursor_row
         if row_idx is None or row_idx >= len(self._entries):
             return
@@ -301,9 +299,7 @@ class SessionScreen(Screen):
         loading = self.query_one("#loading")
         loading.remove_class("-hidden")
         try:
-            self.query_one("#loading_label", Label).update(
-                "Loading sessions…"
-            )
+            self.query_one("#loading_label", Label).update("Loading sessions…")
         except Exception:
             pass
 
@@ -471,9 +467,7 @@ class SessionScreen(Screen):
             msg_parts.append(f"skipped {len(skipped)} unreadable")
         label.update(" · ".join(msg_parts))
 
-    def on_data_table_row_selected(
-        self, event: DataTable.RowSelected
-    ) -> None:
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         row_idx = event.cursor_row
         if row_idx is None or row_idx >= len(self._entries):
             return
@@ -518,10 +512,12 @@ class SessionScreen(Screen):
         return parsed, tree
 
     def _title_for(self, entry: SessionEntry) -> str:
-        return "  —  ".join([
-            self._project.cwd_display,
-            short_datetime(entry.started_ts) or entry.session_id[:8],
-        ])
+        return "  —  ".join(
+            [
+                self._project.cwd_display,
+                short_datetime(entry.started_ts) or entry.session_id[:8],
+            ]
+        )
 
     def action_open_summary(self) -> None:
         """Show the summary modal for the currently highlighted session.
@@ -785,9 +781,7 @@ class SessionDetailScreen(Screen):
         self._sort_mode = mode_ids[(idx + 1) % len(mode_ids)]
         self._repopulate_table()
 
-    def on_data_table_header_selected(
-        self, event: DataTable.HeaderSelected
-    ) -> None:
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         """Click-to-sort: mouse-click on a column header.
 
         Maps the clicked column key to a sort mode via
@@ -855,9 +849,7 @@ class SessionDetailScreen(Screen):
         self._rows = build_detail_rows(self._parsed, self._tree)
         # Refresh the top-of-table header too — turn count and
         # totals may have changed since the screen first loaded.
-        self.query_one("#detail_header", Label).update(
-            self._build_header_text()
-        )
+        self.query_one("#detail_header", Label).update(self._build_header_text())
         self._repopulate_table()
 
     def action_open_filter(self) -> None:
@@ -890,9 +882,7 @@ class SessionDetailScreen(Screen):
         self._repopulate_table()
         self.query_one(DataTable).focus()
 
-    def on_data_table_row_selected(
-        self, event: DataTable.RowSelected
-    ) -> None:
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         idx = event.cursor_row
         visible = getattr(self, "_visible_rows", self._rows)
         if idx is None or idx >= len(visible):
@@ -1134,10 +1124,7 @@ class TurnDetailModal(ModalScreen):
                 f"Cost:     {short_tokens(round(b.cost))} "
                 f"(= own {short_tokens(round(b.own))} "
                 f"+ carry {short_tokens(round(b.inherit))}"
-                + (
-                    f" · caused +{short_tokens(round(b.caused))}"
-                    if b.caused else ""
-                )
+                + (f" · caused +{short_tokens(round(b.caused))}" if b.caused else "")
                 + ")"
             ),
         ]
@@ -1215,9 +1202,7 @@ class TurnDetailModal(ModalScreen):
             return "↵ drill into subagent   ·   esc close"
         return "esc close"
 
-    def on_option_list_option_selected(
-        self, event: OptionList.OptionSelected
-    ) -> None:
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         idx = int(event.option.id or "-1")
         if 0 <= idx < len(self._children):
             self.dismiss({"drill": self._children[idx]})
@@ -1337,10 +1322,7 @@ class HelpModal(ModalScreen):
         ``escape = cancel_filter``) and bindings without a
         description.
         """
-        visible = [
-            b for b in self._display_bindings
-            if b.show and b.description
-        ]
+        visible = [b for b in self._display_bindings if b.show and b.description]
         if not visible:
             return "No keybindings."
         keys = [self._KEY_DISPLAY.get(b.key, b.key) for b in visible]
@@ -1437,9 +1419,7 @@ class SummaryModal(ModalScreen):
 
     def _summary_text(self) -> str:
         start_ts = self._parsed.get("first_entry_ts") or 0.0
-        metrics = compute_metrics_from_parsed(
-            self._parsed, self._tree, start_ts
-        )
+        metrics = compute_metrics_from_parsed(self._parsed, self._tree, start_ts)
         return format_metrics(metrics)
 
     def action_close(self) -> None:
@@ -1568,12 +1548,8 @@ class NonturnDetailModal(ModalScreen):
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "text":
                     text += block.get("text") or ""
-        name_match = re.search(
-            r"<command-name>(.*?)</command-name>", text, re.DOTALL
-        )
-        args_match = re.search(
-            r"<command-args>(.*?)</command-args>", text, re.DOTALL
-        )
+        name_match = re.search(r"<command-name>(.*?)</command-name>", text, re.DOTALL)
+        args_match = re.search(r"<command-args>(.*?)</command-args>", text, re.DOTALL)
         msg_match = re.search(
             r"<command-message>(.*?)</command-message>", text, re.DOTALL
         )
@@ -1658,9 +1634,19 @@ class NonturnDetailModal(ModalScreen):
         import json
 
         filtered = {
-            k: v for k, v in entry.items()
-            if k not in {"uuid", "parentUuid", "sessionId", "userType",
-                         "entrypoint", "isSidechain", "version", "gitBranch"}
+            k: v
+            for k, v in entry.items()
+            if k
+            not in {
+                "uuid",
+                "parentUuid",
+                "sessionId",
+                "userType",
+                "entrypoint",
+                "isSidechain",
+                "version",
+                "gitBranch",
+            }
         }
         try:
             return json.dumps(filtered, indent=2, ensure_ascii=False)

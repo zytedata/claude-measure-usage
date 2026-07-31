@@ -20,7 +20,6 @@ from ..metrics import (
     model_aware_cost_breakdown,
     turn_inherit_seq,
     turn_own_seq,
-    turn_seq,
 )
 from ..turns_label import short_agent_id, turn_label
 
@@ -80,6 +79,7 @@ def render_turns_report(main_parsed, tree):
 # Section rendering
 # ---------------------------------------------------------------------------
 
+
 def _render_main_section(main_parsed, tree):
     """Render the main session header and table."""
     total_seq_own = _model_aware_total(main_parsed.get("tokens_by_model", {}))
@@ -95,9 +95,7 @@ def _render_main_section(main_parsed, tree):
 def _render_subagent_section(node):
     """Render one subagent's header and table."""
     own_seq = _model_aware_total(node.get("tokens_by_model", {}))
-    subtree_seq = own_seq + sum(
-        _node_subtree_seq(c) for c in node.get("children", [])
-    )
+    subtree_seq = own_seq + sum(_node_subtree_seq(c) for c in node.get("children", []))
     header = _format_subagent_header(node, own_seq, subtree_seq)
     rows = _build_rows(
         node.get("rows") or node.get("turns", []),
@@ -117,7 +115,11 @@ def _format_main_header(main_parsed, own_seq, subtree_seq):
 
 def _format_subagent_header(node, own_seq, subtree_seq):
     cid = short_agent_id(node.get("path", ""))
-    desc = node.get("call_description") or node.get("meta", {}).get("description", "") or ""
+    desc = (
+        node.get("call_description")
+        or node.get("meta", {}).get("description", "")
+        or ""
+    )
     parent = node.get("call_turn")
     turn_count = node.get("turn_count", 0)
 
@@ -158,6 +160,7 @@ def _format_tokens_label(own_seq, subtree_seq):
 # Row construction
 # ---------------------------------------------------------------------------
 
+
 def _build_rows(source_rows, call_turn_to_children):
     """Turn parser rows into list-of-dict rows ready for the table renderer.
 
@@ -193,8 +196,15 @@ def _build_rows(source_rows, call_turn_to_children):
 
     rows = []
     totals = {
-        "in": 0, "out": 0, "cache_r": 0, "cache_w": 0, "seq": 0.0,
-        "own": 0.0, "inherit": 0.0, "caused": 0.0, "took": 0.0,
+        "in": 0,
+        "out": 0,
+        "cache_r": 0,
+        "cache_w": 0,
+        "seq": 0.0,
+        "own": 0.0,
+        "inherit": 0.0,
+        "caused": 0.0,
+        "took": 0.0,
     }
 
     prev_turn = None
@@ -205,8 +215,13 @@ def _build_rows(source_rows, call_turn_to_children):
             first_turn_seen = True
             rows.append(
                 _format_turn_row(
-                    r, t0, call_turn_to_children, totals, prev_turn,
-                    caused_by_turn, is_first,
+                    r,
+                    t0,
+                    call_turn_to_children,
+                    totals,
+                    prev_turn,
+                    caused_by_turn,
+                    is_first,
                 )
             )
             prev_turn = r
@@ -231,7 +246,9 @@ def _first_ts(source_rows):
     return 0
 
 
-def _format_turn_row(t, t0, call_turn_to_children, totals, prev_turn, caused_by_turn, is_first):
+def _format_turn_row(
+    t, t0, call_turn_to_children, totals, prev_turn, caused_by_turn, is_first
+):
     """Render a model turn, accumulating into ``totals`` in place.
 
     Cost decomposition:
@@ -361,6 +378,7 @@ def _append_child_ids(label, children):
 # Tree helpers
 # ---------------------------------------------------------------------------
 
+
 def _walk_tree(nodes):
     """Yield every node in the tree, depth-first."""
     for node in nodes:
@@ -382,7 +400,9 @@ def _children_by_call_turn(direct_children):
             continue
         cid = short_agent_id(child.get("path", ""))
         seq = _node_subtree_seq(child)
-        desc = child.get("call_description") or child.get("meta", {}).get("description", "")
+        desc = child.get("call_description") or child.get("meta", {}).get(
+            "description", ""
+        )
         result.setdefault(call_turn, []).append((cid, seq, desc))
     return result
 
@@ -404,6 +424,7 @@ def _model_aware_total(tokens_by_model):
 # ---------------------------------------------------------------------------
 # Table layout
 # ---------------------------------------------------------------------------
+
 
 def _render_table(rows):
     """Format data rows with aligned columns.
@@ -460,9 +481,15 @@ def _format_row(cols, widths, row, is_header=False):
     """
     tight_keys = {
         # cost decomposition
-        "Tokens", "own", "inherit",
+        "Tokens",
+        "own",
+        "inherit",
         # raw-tokens block
-        "model", "in", "out", "cache_r", "cache_w",
+        "model",
+        "in",
+        "out",
+        "cache_r",
+        "cache_w",
     }
 
     pieces = []
@@ -524,8 +551,14 @@ def _pad_with_leaders(content, width):
 def _divider(cols, widths):
     """Divider matches the gap pattern used by ``_format_row``."""
     tight_keys = {
-        "Tokens", "own", "inherit",
-        "model", "in", "out", "cache_r", "cache_w",
+        "Tokens",
+        "own",
+        "inherit",
+        "model",
+        "in",
+        "out",
+        "cache_r",
+        "cache_w",
     }
     total = 0
     for idx, (key, _, _) in enumerate(cols):
@@ -544,6 +577,7 @@ def _divider(cols, widths):
 # ---------------------------------------------------------------------------
 # Formatting primitives
 # ---------------------------------------------------------------------------
+
 
 def _legend():
     return (
