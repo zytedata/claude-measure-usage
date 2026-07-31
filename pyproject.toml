@@ -4,11 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-measure-usage"
-version = "0.0.1"
+version = "0.0.0"
 description = "Interactive TUI for debugging token usage of Claude Code sessions"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Mikhail Korobov" }]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 keywords = ["claude", "claude-code", "tokens", "usage", "tui", "textual"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -27,6 +29,10 @@ classifiers = [
 dependencies = [
     "textual>=0.80",
 ]
+
+[project.urls]
+Homepage = "https://github.com/zytedata/claude-measure-usage"
+Issues = "https://github.com/zytedata/claude-measure-usage/issues"
 
 [project.scripts]
 claude-measure-usage = "claude_measure_usage.__main__:main"
