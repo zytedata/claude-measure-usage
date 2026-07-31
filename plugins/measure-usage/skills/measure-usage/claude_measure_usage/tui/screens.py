@@ -1,4 +1,4 @@
-"""Textual screens for claude-usage-tui.
+"""Textual screens for claude-measure-usage.
 
 Each screen is a full-screen :class:`textual.screen.Screen` pushed
 and popped on a stack — see ``docs/tui-ux.md`` for the interaction
@@ -163,7 +163,7 @@ class ProjectScreen(Screen):
     def action_help(self) -> None:
         self.app.push_screen(
             HelpModal(
-                title="claude-usage-tui  —  Project picker",
+                title="claude-measure-usage  —  Project picker",
                 bindings=list(self.BINDINGS),
                 intro=(
                     "Browse Claude Code projects under "
@@ -542,6 +542,7 @@ class SessionScreen(Screen):
                 title=self._title_for(entry),
                 parsed=parsed,
                 tree=tree,
+                transcript_path=entry.transcript_path,
             )
         )
 
@@ -554,7 +555,7 @@ class SessionScreen(Screen):
     def action_help(self) -> None:
         self.app.push_screen(
             HelpModal(
-                title="claude-usage-tui  —  Session picker",
+                title="claude-measure-usage  —  Session picker",
                 bindings=list(self.BINDINGS),
                 intro=(
                     "Sessions in the selected project, most "
@@ -823,6 +824,7 @@ class SessionDetailScreen(Screen):
                 title=self._title,
                 parsed=self._parsed,
                 tree=self._tree,
+                transcript_path=self._transcript_path,
             )
         )
 
@@ -950,7 +952,7 @@ class SessionDetailScreen(Screen):
     def action_help(self) -> None:
         self.app.push_screen(
             HelpModal(
-                title="claude-usage-tui  —  Session detail",
+                title="claude-measure-usage  —  Session detail",
                 bindings=list(self.BINDINGS),
                 intro=(
                     "Per-turn timeline for one session. Enter "
@@ -1151,13 +1153,21 @@ class TurnDetailModal(ModalScreen):
 
     def _raw_counts_text(self) -> str:
         t = self._turn
-        return (
+        out_mark = "≈" if t.get("out_estimated") else ""
+        text = (
             f"Raw:      in {short_tokens(t.get('in_tokens', 0))}   "
-            f"out {short_tokens(t.get('out_tokens', 0))}   "
+            f"out {out_mark}{short_tokens(t.get('out_tokens', 0))}   "
             f"cache_r {short_tokens(t.get('cache_r', 0))}   "
             f"cache_w {short_tokens(t.get('cache_w', 0))}   "
             f"ctx {short_tokens(t.get('ctx', 0))}"
         )
+        if out_mark:
+            text += (
+                "\n          (the transcript never recorded this turn's"
+                " final usage — out is a content-length estimate, or the"
+                " booked partial count where that was larger)"
+            )
+        return text
 
     def _tool_calls_text(self, tool_calls: list[dict]) -> str:
         import json
@@ -1379,6 +1389,11 @@ class SummaryModal(ModalScreen):
         color: $accent;
         text-style: bold;
     }
+    SummaryModal #modal_path {
+        height: auto;
+        color: $text-muted;
+        margin-top: 1;
+    }
     SummaryModal #modal_body {
         height: 1fr;
         padding-top: 1;
@@ -1399,15 +1414,23 @@ class SummaryModal(ModalScreen):
         title: str,
         parsed: dict,
         tree: list[dict],
+        transcript_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._title = title
         self._parsed = parsed
         self._tree = tree
+        self._transcript_path = transcript_path
 
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Static(f"Summary  ·  {self._title}", id="modal_header")
+            if self._transcript_path is not None:
+                yield Static(
+                    f"Transcript: {self._transcript_path}",
+                    id="modal_path",
+                    markup=False,
+                )
             with VerticalScroll(id="modal_body"):
                 yield Static(self._summary_text())
             yield Static("esc close", id="modal_footer")

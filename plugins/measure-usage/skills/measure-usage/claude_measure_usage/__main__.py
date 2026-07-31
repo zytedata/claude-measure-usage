@@ -1,12 +1,12 @@
-"""``python -m claude_usage_tui`` — launches the interactive TUI.
+"""``python -m claude_measure_usage`` — launches the interactive TUI.
 
-The ``claude-usage-tui`` console script from :mod:`pyproject.toml`
+The ``claude-measure-usage`` console script from :mod:`pyproject.toml`
 resolves to :func:`main` here too, so both invocation forms share
 one entry point. The TUI implementation lives in
-:mod:`claude_usage_tui.tui.app`.
+:mod:`claude_measure_usage.tui.app`.
 
 Textual is imported lazily inside :func:`main` so that simply
-importing :mod:`claude_usage_tui` — which the plain CLI and the
+importing :mod:`claude_measure_usage` — which the plain CLI and the
 re-export facade both do — never pulls Textual into ``sys.modules``.
 """
 
