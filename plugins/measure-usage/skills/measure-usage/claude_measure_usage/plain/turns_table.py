@@ -291,7 +291,7 @@ def _format_turn_row(t, t0, call_turn_to_children, totals, prev_turn, caused_by_
         "took": _fmt_time(t, prev_turn),
         "model": _tiny_model(t.get("model", "")),
         "in": _fmt_raw(t["in_tokens"]),
-        "out": _fmt_raw(t["out_tokens"]),
+        "out": ("≈" if t.get("out_estimated") else "") + _fmt_raw(t["out_tokens"]),
         "cache_r": _fmt_raw(t["cache_r"], dash_zero=True),
         "cache_w": _fmt_raw(t["cache_w"], dash_zero=True),
         "ctx": _fmt_raw(t["ctx"]),

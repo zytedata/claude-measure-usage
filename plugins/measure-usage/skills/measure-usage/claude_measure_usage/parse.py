@@ -5,6 +5,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from .output_estimation import OutputEstimator, output_content_chars
+
 TOKEN_KEYS = (
     "input_tokens",
     "output_tokens",
@@ -222,6 +224,23 @@ class _TranscriptParser:
         # later split entry carries a larger (complete) output_tokens.
         self._cur_counted = None
         self._cur_turn_model = "unknown"
+        # Detection + repair of turns whose final usage never reached
+        # the transcript. output_tokens is filled in incrementally
+        # across a split turn's entries; when no entry of the group
+        # carries a stop_reason, the final message_delta was never
+        # written and even the max across the split is a stale partial
+        # (observed only in subagent transcripts, where a long Write
+        # can book output_tokens=2). Track whether the current group
+        # saw a stop_reason and how many chars the model generated;
+        # the estimator calibrates on this transcript's complete turns
+        # and repairs the missing output at result() time. See
+        # output_estimation.py for the estimation model.
+        self._cur_stop_seen = False
+        self._cur_out_text_chars = 0
+        self._cur_out_tool_chars = 0
+        self._output_estimator = OutputEstimator()
+        self._finalized = False
+        self.output_estimated = {"turn_count": 0, "added_tokens": 0}
         # Maps the spawned subagent's agentId (as written by
         # Claude Code in toolUseResult) to the tool_use_id of the
         # Agent/Skill call that spawned it. Lets build_agent_tree
@@ -231,8 +250,10 @@ class _TranscriptParser:
         self.agent_id_to_tool_use = {}
 
     def result(self):
+        self._finalize()
         return {
             "tokens_by_model": self.tokens_by_model,
+            "output_estimated": self.output_estimated,
             "peak_context_tokens": self.peak_context,
             "turn_count": self.turn_count,
             "tool_uses": self.tool_uses,
@@ -286,7 +307,14 @@ class _TranscriptParser:
                 if self._cur_turn is not None and self.entry_ts is not None:
                     prior = self._cur_turn.get("end_ts") or 0
                     self._cur_turn["end_ts"] = max(prior, self.entry_ts)
+                self._cur_stop_seen = (
+                    self._cur_stop_seen or msg.get("stop_reason") is not None
+                )
+                text_chars, tool_chars = output_content_chars(msg.get("content"))
+                self._cur_out_text_chars += text_chars
+                self._cur_out_tool_chars += tool_chars
             else:
+                self._close_turn()
                 self.turn_count += 1
                 self.model = msg.get("model", "unknown")
                 self._accumulate_usage(usage)
@@ -296,6 +324,10 @@ class _TranscriptParser:
                 self._cur_turn_model = self.model
                 self._cur_counted = self._snapshot_counted(usage)
                 self._cur_msg_id = msg_id
+                self._cur_stop_seen = msg.get("stop_reason") is not None
+                self._cur_out_text_chars, self._cur_out_tool_chars = (
+                    output_content_chars(msg.get("content"))
+                )
         elif not is_assistant:
             # Non-assistant transcript entries (user messages, system
             # events, permission mode changes, attachments, etc.) do
@@ -554,6 +586,51 @@ class _TranscriptParser:
         row["ctx"] = row["in_tokens"] + row["cache_r"] + row["cache_w"]
         self.peak_context = max(self.peak_context, row["ctx"])
 
+    def _close_turn(self):
+        """Bank the finished turn group for output-estimation bookkeeping.
+
+        Complete turns — some entry of the group carried a
+        stop_reason, meaning the final message_delta usage was
+        written — feed the chars-per-output-token calibration.
+        Groups where no entry carried a stop_reason never received
+        their final usage: the booked output is a stale partial
+        (a true lower bound), so they're queued for estimation in
+        _finalize(). Synthetic error placeholders never billed
+        anything and are skipped.
+        """
+        row = self._cur_turn
+        if row is None or self._cur_counted is None:
+            return
+        model = self._cur_turn_model
+        text_chars = self._cur_out_text_chars
+        tool_chars = self._cur_out_tool_chars
+        if self._cur_stop_seen:
+            self._output_estimator.add_complete_turn(
+                model, text_chars, tool_chars,
+                self._cur_counted.get("output_tokens", 0),
+            )
+        elif model != "<synthetic>":
+            self._output_estimator.add_missing_turn(
+                row, model, text_chars, tool_chars,
+            )
+
+    def _finalize(self):
+        """Estimate output for turns whose final usage never landed.
+
+        Delegates to the OutputEstimator (see output_estimation.py
+        for the model): affected rows get ``out_estimated`` and a
+        possibly-raised ``out_tokens``, the per-model buckets absorb
+        the added output, and the summary counts land in
+        ``self.output_estimated``.
+        """
+        if self._finalized:
+            return
+        self._finalized = True
+        self._close_turn()
+        self.output_estimated.update(
+            self._output_estimator.apply(self.tokens_by_model)
+        )
+
     def _handle_tool_use(self, block):
         """Handle a tool_use content block."""
         name = block.get("name", "unknown")
@@ -697,6 +774,7 @@ def build_agent_tree(main_path, main_parsed, subagent_infos):
                 "agent_calls": parsed["agent_calls"],
                 "turns": parsed["turns"],
                 "rows": parsed.get("rows", []),
+                "output_estimated": parsed.get("output_estimated") or {},
                 "children": _build_children(info["path"]),
             }
             children.append(node)

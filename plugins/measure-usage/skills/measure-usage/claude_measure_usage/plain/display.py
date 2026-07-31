@@ -51,6 +51,15 @@ def format_metrics(metrics):
             else:
                 lines.append(f"  {pct:>{max_pct_len}}  {label}: {_fmt_k(round(val))}")
 
+        est = metrics.get("output_estimated") or {}
+        if est.get("turn_count"):
+            n = est["turn_count"]
+            lines.append(
+                f"  note: {n} turn{'s' if n != 1 else ''} missing final usage"
+                f" in transcript;"
+                f" ≈{_fmt_k(est.get('added_tokens', 0))} output tokens added"
+            )
+
     # Per-model breakdown (only if multiple models)
     if len(tokens_by_model) > 1:
         lines.append("By model:")

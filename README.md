@@ -38,7 +38,9 @@ rows under turn 1 are subagents — here, two parallel Explore agents
 that ran on a different model than the main session; `↵` on one drills
 into its own per-turn table. The columns right of `what` hold the raw
 transcript counts (`model`, `in`, `out`, `cache_r`, `cache_w`) —
-exactly what the API reported, unnormalized. On narrow terminals the
+exactly what the API reported, unnormalized. One exception: on rows
+marked `≈`, the transcript never recorded the turn's final usage, so
+`out` is estimated from content length. On narrow terminals the
 table scrolls horizontally with `←`/`→`.
 
 Three kinds of rows share the table:

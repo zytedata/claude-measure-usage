@@ -410,6 +410,12 @@ def compute_metrics_from_parsed(parsed, tree, start_ts, now=None):
     merged_turns = main["turn_count"]
     merged_user_messages = main["user_message_count"]
     merged_server_tool_use = dict(main["server_tool_use"])
+    # Turns whose final usage never reached the transcript, and the
+    # output tokens the parser estimated for them (see parse.py's
+    # _finalize). Surfaced so renderers can mark totals approximate.
+    merged_output_estimated = dict.fromkeys(("turn_count", "added_tokens"), 0)
+    for key in merged_output_estimated:
+        merged_output_estimated[key] += (main.get("output_estimated") or {}).get(key, 0)
 
     for sub in all_subagents:
         all_tokens_by_model = merge_tokens_by_model(all_tokens_by_model, sub["tokens_by_model"])
@@ -427,6 +433,8 @@ def compute_metrics_from_parsed(parsed, tree, start_ts, now=None):
         merged_user_messages += sub["user_message_count"]
         for key, val in sub["server_tool_use"].items():
             merged_server_tool_use[key] = merged_server_tool_use.get(key, 0) + val
+        for key in merged_output_estimated:
+            merged_output_estimated[key] += (sub.get("output_estimated") or {}).get(key, 0)
 
     merged_tokens = total_from_by_model(all_tokens_by_model)
     total_tokens = sum(merged_tokens[k] for k in TOKEN_KEYS)
@@ -445,6 +453,7 @@ def compute_metrics_from_parsed(parsed, tree, start_ts, now=None):
         "tool_wall_times": all_wall_times,
         "server_tool_use": merged_server_tool_use,
         "subagent_count": len(all_subagents),
+        "output_estimated": merged_output_estimated,
         "tree": tree,
         "main": {
             "tokens_by_model": main["tokens_by_model"],
