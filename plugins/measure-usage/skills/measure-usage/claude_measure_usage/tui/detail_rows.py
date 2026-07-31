@@ -1,6 +1,6 @@
 """Build DataTable rows for the session detail screen.
 
-Deliberately not shared with :mod:`claude_usage_tui.plain.turns_table`.
+Deliberately not shared with :mod:`claude_measure_usage.plain.turns_table`.
 The text CLI and the TUI render the same underlying data — turn
 rows, non-turn rows, subagent rollups — but have different column
 sets, sort semantics, and future column ambitions. A shared row
@@ -139,9 +139,9 @@ def build_detail_rows(parsed: dict, tree: list[dict]) -> list[DetailRow]:
     subagent footnote row per child.
 
     Args:
-        parsed: Result of :func:`claude_usage_tui.parse.parse_transcript`
+        parsed: Result of :func:`claude_measure_usage.parse.parse_transcript`
             for the main session.
-        tree: Result of :func:`claude_usage_tui.parse.build_agent_tree`
+        tree: Result of :func:`claude_measure_usage.parse.build_agent_tree`
             — list of direct subagent nodes. Grandchildren are
             reachable by drilling into their parent's detail
             screen, not by recursing inline (see ``docs/tui-ux.md``).
@@ -557,7 +557,7 @@ def _turn_span_secs(turn: dict, prev_turn: dict | None) -> float:
     Spans from the end of the previous turn's tool execution to
     the end of this turn's own work, so the interval bundles
     pre-turn API wait with this turn's generation + tools. See
-    :func:`claude_usage_tui.plain.turns_table._fmt_time` for the
+    :func:`claude_measure_usage.plain.turns_table._fmt_time` for the
     original treatment and rationale.
 
     Returns 0 when there's no meaningful span (first turn, no

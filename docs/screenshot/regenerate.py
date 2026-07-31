@@ -15,17 +15,19 @@ The staging HOME must be a dash-free path: the TUI decodes a project
 directory name back to a cwd by replacing ``-`` with ``/`` and checking
 the result against the filesystem, so any dash in an ancestor directory
 would break the decode and the header would show the raw encoded name.
-Hence ``/private/tmp/muhome`` rather than a mktemp path.
+Hence a fixed path under the temporary directory rather than a mktemp one.
+On macOS that path is ``/private/tmp``, which is what ``/tmp`` resolves to.
 """
 import asyncio
 import os
 import shutil
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE.parent / "session-detail.svg"
-HOME = Path("/private/tmp/muhome")
-PROJECT_DIR_NAME = "-private-tmp-muhome-code-forecast"
+HOME = Path("/private/tmp" if sys.platform == "darwin" else "/tmp") / "muhome"
+PROJECT_DIR_NAME = str(HOME / "code" / "forecast").replace("/", "-")
 SIZE = (184, 34)
 SUBAGENT_ROW = 6  # rows above the first ↳ row: user, 4 attachments, turn 1
 
@@ -43,10 +45,10 @@ def stage() -> None:
 async def shoot() -> None:
     from textual.widgets import DataTable
 
-    from claude_usage_tui.tui.app import ClaudeUsageTuiApp
-    from claude_usage_tui.tui.screens import SessionDetailScreen, SessionScreen
+    from claude_measure_usage.tui.app import MeasureUsageApp
+    from claude_measure_usage.tui.screens import SessionDetailScreen, SessionScreen
 
-    app = ClaudeUsageTuiApp()
+    app = MeasureUsageApp()
     async with app.run_test(size=SIZE) as pilot:
         await pilot.pause()
         assert app.screen.query_one(DataTable).row_count == 1, "project missing"
@@ -69,7 +71,7 @@ async def shoot() -> None:
         for _ in range(SUBAGENT_ROW):
             await pilot.press("down")
         await pilot.pause(0.2)
-        OUT.write_text(app.export_screenshot(title="claude-usage-tui"))
+        OUT.write_text(app.export_screenshot(title="claude-measure-usage"))
         print(f"saved {OUT}")
 
 

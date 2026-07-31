@@ -1,4 +1,4 @@
-"""Textual screens for claude-usage-tui.
+"""Textual screens for claude-measure-usage.
 
 Each screen is a full-screen :class:`textual.screen.Screen` pushed
 and popped on a stack — see ``docs/tui-ux.md`` for the interaction
@@ -163,7 +163,7 @@ class ProjectScreen(Screen):
     def action_help(self) -> None:
         self.app.push_screen(
             HelpModal(
-                title="claude-usage-tui  —  Project picker",
+                title="claude-measure-usage  —  Project picker",
                 bindings=list(self.BINDINGS),
                 intro=(
                     "Browse Claude Code projects under "
@@ -555,7 +555,7 @@ class SessionScreen(Screen):
     def action_help(self) -> None:
         self.app.push_screen(
             HelpModal(
-                title="claude-usage-tui  —  Session picker",
+                title="claude-measure-usage  —  Session picker",
                 bindings=list(self.BINDINGS),
                 intro=(
                     "Sessions in the selected project, most "
@@ -952,7 +952,7 @@ class SessionDetailScreen(Screen):
     def action_help(self) -> None:
         self.app.push_screen(
             HelpModal(
-                title="claude-usage-tui  —  Session detail",
+                title="claude-measure-usage  —  Session detail",
                 bindings=list(self.BINDINGS),
                 intro=(
                     "Per-turn timeline for one session. Enter "

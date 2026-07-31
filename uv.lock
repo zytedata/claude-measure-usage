@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.10"
 
 [[package]]
-name = "claude-usage-tui"
+name = "claude-measure-usage"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [

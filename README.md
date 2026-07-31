@@ -1,9 +1,9 @@
-# claude-usage-tui
+# claude-measure-usage
 
 An interactive terminal UI for inspecting token usage and cost of
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
 
-`claude-usage-tui` is a read-only debugger over the session transcripts
+`claude-measure-usage` is a read-only debugger over the session transcripts
 Claude Code writes to `~/.claude/projects/`. It answers the question
 *"where did all those tokens go?"* — across projects, across sessions
 within a project, across turns within a session, and down into every
@@ -26,7 +26,7 @@ uv tool install --editable /path/to/claude-measure-usage
 # or: pip install -e /path/to/claude-measure-usage
 ```
 
-Then run `claude-usage-tui` from anywhere.
+Then run `claude-measure-usage` from anywhere.
 
 ## What it looks like
 
