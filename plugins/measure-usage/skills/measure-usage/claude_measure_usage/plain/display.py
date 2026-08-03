@@ -1,5 +1,7 @@
 """Formatting metrics for human-readable output."""
 
+from functools import partial
+
 from ..metrics import (
     _model_cost_scale,
     cost_breakdown,
@@ -206,7 +208,12 @@ def _short_model(model_name):
 def _tiny_model(model_name):
     """Shorten a model ID to a 4-char tag for dense tables: fabl, opus, sonn, haik."""
     name = model_name.lower()
-    for family, tag in (("fable", "fabl"), ("opus", "opus"), ("sonnet", "sonn"), ("haiku", "haik")):
+    for family, tag in (
+        ("fable", "fabl"),
+        ("opus", "opus"),
+        ("sonnet", "sonn"),
+        ("haiku", "haik"),
+    ):
         if family in name:
             return tag
     return (model_name or "")[:4]
@@ -222,7 +229,7 @@ def _fmt_duration(duration_s):
 
 def _format_tree(nodes, main=None):
     """Format main + agent tree as a semi-table with header and aligned columns."""
-    fmt = lambda v: _fmt_k(v, use_m=False)
+    fmt = partial(_fmt_k, use_m=False)
 
     # Collect rows: (label, cost, turns, context)
     entries = []
@@ -230,12 +237,14 @@ def _format_tree(nodes, main=None):
         main_mac = model_aware_cost_breakdown(main.get("tokens_by_model", {}))
         cost = fmt(round(main_mac["total"])) if main_mac["total"] > 0 else "0"
         ctx = main.get("peak_context_tokens", 0)
-        entries.append((
-            "Main session",
-            cost,
-            str(main.get("turn_count", 0)),
-            fmt(ctx) if ctx else "",
-        ))
+        entries.append(
+            (
+                "Main session",
+                cost,
+                str(main.get("turn_count", 0)),
+                fmt(ctx) if ctx else "",
+            )
+        )
     entries.extend(_collect_tree_entries(nodes, "  "))
 
     if not entries:
@@ -264,7 +273,7 @@ def _format_tree(nodes, main=None):
 
 def _collect_tree_entries(nodes, prefix):
     """Collect (label, cost, turns, context) tuples from tree nodes."""
-    fmt = lambda v: _fmt_k(v, use_m=False)
+    fmt = partial(_fmt_k, use_m=False)
     entries = []
     for i, node in enumerate(nodes):
         is_last = i == len(nodes) - 1
@@ -284,12 +293,14 @@ def _collect_tree_entries(nodes, prefix):
         cost = fmt(round(sub_mac["total"])) if sub_mac["total"] > 0 else "0"
         ctx = node.get("peak_context_tokens", 0)
 
-        entries.append((
-            f"{prefix}{connector}{name}",
-            cost,
-            str(node.get("turn_count", 0)),
-            fmt(ctx) if ctx else "",
-        ))
+        entries.append(
+            (
+                f"{prefix}{connector}{name}",
+                cost,
+                str(node.get("turn_count", 0)),
+                fmt(ctx) if ctx else "",
+            )
+        )
 
         children = node.get("children", [])
         if children:

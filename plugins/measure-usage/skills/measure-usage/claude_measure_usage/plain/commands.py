@@ -27,6 +27,7 @@ from .turns_table import render_turns_report
 # Commands
 # ---------------------------------------------------------------------------
 
+
 def _resolve_transcript(session_id):
     transcript = find_transcript_path(session_id)
     if transcript is None:

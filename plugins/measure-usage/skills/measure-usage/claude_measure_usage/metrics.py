@@ -2,8 +2,6 @@
 
 from .parse import (
     TOKEN_KEYS,
-    CACHE_TIER_KEYS,
-    ALL_TOKEN_KEYS,
     merge_tokens_by_model,
     total_from_by_model,
     find_subagent_transcripts,
@@ -18,18 +16,18 @@ from .parse import (
 # Checked in order — more specific patterns first.
 _MODEL_SCALES = [
     # Fable tier ($10/MTok input)
-    ("fable", 10 / 3),       # claude-fable-5
-    ("mythos", 10 / 3),      # claude-mythos-5 — same model/pricing as Fable
+    ("fable", 10 / 3),  # claude-fable-5
+    ("mythos", 10 / 3),  # claude-mythos-5 — same model/pricing as Fable
     # Legacy Opus ($15/MTok input)
-    ("opus-4-1", 5.0),       # claude-opus-4-1-20250414
-    ("3-opus", 5.0),          # claude-3-opus-20240229
+    ("opus-4-1", 5.0),  # claude-opus-4-1-20250414
+    ("3-opus", 5.0),  # claude-3-opus-20240229
     # Current / future Opus ($5/MTok input)
     ("opus", 5 / 3),
     # Sonnet — all versions ($3/MTok input)
     ("sonnet", 1.0),
     # Legacy Haiku ($0.80/MTok input)
-    ("3-5-haiku", 0.267),    # claude-3-5-haiku-20241022
-    ("3-haiku", 0.267),       # claude-3-haiku-20240307
+    ("3-5-haiku", 0.267),  # claude-3-5-haiku-20241022
+    ("3-haiku", 0.267),  # claude-3-haiku-20240307
     # Current / future Haiku ($1/MTok input)
     ("haiku", 1 / 3),
 ]
@@ -126,6 +124,7 @@ def model_aware_cost_breakdown(tokens_by_model):
 # Per-turn Seq
 # ---------------------------------------------------------------------------
 
+
 def turn_seq(row):
     """Sonnet-equivalent token count for one per-turn row.
 
@@ -164,11 +163,7 @@ def turn_own_seq(row):
         cache_w_cost = cache_w_5m * 1.25 + cache_w_1h * 2.0
     else:
         cache_w_cost = row.get("cache_w", 0) * 1.25
-    seq = (
-        row.get("in_tokens", 0) * 1.0
-        + cache_w_cost
-        + row.get("out_tokens", 0) * 5.0
-    )
+    seq = row.get("in_tokens", 0) * 1.0 + cache_w_cost + row.get("out_tokens", 0) * 5.0
     return seq * scale
 
 
@@ -251,6 +246,7 @@ def compute_caused_by_turn(rows):
 # Tool costs and wall times
 # ---------------------------------------------------------------------------
 
+
 def compute_tool_costs(tool_invocations, total_turns, rows=None):
     """Compute per-tool marginal and accumulated costs from invocations.
 
@@ -279,7 +275,9 @@ def compute_tool_costs(tool_invocations, total_turns, rows=None):
         if rt is not None:
             acc_turns = _tool_turns_remaining(rt, total_turns, turn_nums_per_epoch)
             accumulated = projected_future_reads_seq(
-                inv["input_est"], inv["model"], acc_turns,
+                inv["input_est"],
+                inv["model"],
+                acc_turns,
             )
         else:
             accumulated = 0
@@ -328,8 +326,10 @@ def merge_tool_costs(a, b):
     merged = {}
     for name in set(list(a) + list(b)):
         merged[name] = {
-            "marginal": a.get(name, {}).get("marginal", 0) + b.get(name, {}).get("marginal", 0),
-            "accumulated": a.get(name, {}).get("accumulated", 0) + b.get(name, {}).get("accumulated", 0),
+            "marginal": a.get(name, {}).get("marginal", 0)
+            + b.get(name, {}).get("marginal", 0),
+            "accumulated": a.get(name, {}).get("accumulated", 0)
+            + b.get(name, {}).get("accumulated", 0),
         }
         merged[name]["total"] = merged[name]["marginal"] + merged[name]["accumulated"]
     return merged
@@ -350,6 +350,7 @@ def compute_wall_times(tool_invocations):
 # ---------------------------------------------------------------------------
 # Main metrics computation
 # ---------------------------------------------------------------------------
+
 
 def _latest_ts_in_parsed(parsed):
     """Return the latest entry timestamp from a parse_transcript
@@ -402,7 +403,9 @@ def compute_metrics_from_parsed(parsed, tree, start_ts, now=None):
     # Merge totals across main + all subagents
     all_tokens_by_model = dict(main["tokens_by_model"])
     all_tool_costs = compute_tool_costs(
-        main["tool_invocations"], main["turn_count"], rows=main.get("rows"),
+        main["tool_invocations"],
+        main["turn_count"],
+        rows=main.get("rows"),
     )
     all_wall_times = compute_wall_times(main["tool_invocations"])
     merged_tool_uses = dict(main["tool_uses"])
@@ -418,9 +421,13 @@ def compute_metrics_from_parsed(parsed, tree, start_ts, now=None):
         merged_output_estimated[key] += (main.get("output_estimated") or {}).get(key, 0)
 
     for sub in all_subagents:
-        all_tokens_by_model = merge_tokens_by_model(all_tokens_by_model, sub["tokens_by_model"])
+        all_tokens_by_model = merge_tokens_by_model(
+            all_tokens_by_model, sub["tokens_by_model"]
+        )
         sub_tool_costs = compute_tool_costs(
-            sub["tool_invocations"], sub["turn_count"], rows=sub.get("rows"),
+            sub["tool_invocations"],
+            sub["turn_count"],
+            rows=sub.get("rows"),
         )
         all_tool_costs = merge_tool_costs(all_tool_costs, sub_tool_costs)
         sub_wall = compute_wall_times(sub["tool_invocations"])
@@ -434,7 +441,9 @@ def compute_metrics_from_parsed(parsed, tree, start_ts, now=None):
         for key, val in sub["server_tool_use"].items():
             merged_server_tool_use[key] = merged_server_tool_use.get(key, 0) + val
         for key in merged_output_estimated:
-            merged_output_estimated[key] += (sub.get("output_estimated") or {}).get(key, 0)
+            merged_output_estimated[key] += (sub.get("output_estimated") or {}).get(
+                key, 0
+            )
 
     merged_tokens = total_from_by_model(all_tokens_by_model)
     total_tokens = sum(merged_tokens[k] for k in TOKEN_KEYS)

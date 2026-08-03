@@ -112,7 +112,7 @@ def _collapse_home(path: str) -> str:
     if path == home:
         return "~"
     if path.startswith(home + "/"):
-        return "~" + path[len(home):]
+        return "~" + path[len(home) :]
     return path
 
 
@@ -138,7 +138,8 @@ def list_session_paths(project_dir: Path) -> list[Path]:
     background worker so the UI stays responsive on large projects.
     """
     return [
-        p for p in sorted(project_dir.glob("*.jsonl"))
+        p
+        for p in sorted(project_dir.glob("*.jsonl"))
         if not p.name.endswith(".meta.json")
     ]
 
@@ -231,26 +232,28 @@ def _pick_summary(rows: list[dict]) -> str | None:
 # that *begin* with one of these (common: ``/clear`` to start a
 # fresh context) should be identified by whatever comes next, not
 # by the boundary marker itself.
-_NAVIGATION_SLASH_COMMANDS = frozenset({
-    "/clear",
-    "/compact",
-    "/exit",
-    "/quit",
-    "/reset",
-    "/init",
-    "/login",
-    "/logout",
-    "/model",
-    "/config",
-    "/help",
-    "/status",
-    "/cost",
-})
+_NAVIGATION_SLASH_COMMANDS = frozenset(
+    {
+        "/clear",
+        "/compact",
+        "/exit",
+        "/quit",
+        "/reset",
+        "/init",
+        "/login",
+        "/logout",
+        "/model",
+        "/config",
+        "/help",
+        "/status",
+        "/cost",
+    }
+)
 
 
 def _strip_prefix(text: str, prefix: str) -> str:
     if text.startswith(prefix):
-        return text[len(prefix):]
+        return text[len(prefix) :]
     return text
 
 

@@ -10,7 +10,7 @@ def short_agent_id(path_or_id):
     if "/" in name:
         name = name.rsplit("/", 1)[-1]
     if name.startswith("agent-"):
-        name = name[len("agent-"):]
+        name = name[len("agent-") :]
     if name.endswith(".jsonl"):
         name = name[: -len(".jsonl")]
     return name[:_SHORT_AGENT_ID_LEN]
@@ -77,6 +77,7 @@ def _format_tool_calls(tool_calls, max_len):
 # Per-tool input extraction
 # ---------------------------------------------------------------------------
 
+
 def _tool_fragment(call):
     """Render a single tool call as a short label fragment."""
     name = call.get("name", "unknown")
@@ -91,6 +92,7 @@ def _file_path_fragment(label):
     def _build(inp):
         path = inp.get("file_path") or ""
         return f"{label} {_basename(path)}" if path else label
+
     return _build
 
 
@@ -154,6 +156,7 @@ def _task_simple_fragment(label):
     def _build(inp):
         tid = inp.get("taskId") or ""
         return f"{label} #{tid}" if tid else label
+
     return _build
 
 

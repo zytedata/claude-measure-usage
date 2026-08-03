@@ -4,11 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-measure-usage"
-version = "0.0.1"
+version = "0.0.0"
 description = "Interactive TUI for debugging token usage of Claude Code sessions"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Mikhail Korobov" }]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 keywords = ["claude", "claude-code", "tokens", "usage", "tui", "textual"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -28,6 +30,10 @@ dependencies = [
     "textual>=0.80",
 ]
 
+[project.urls]
+Homepage = "https://github.com/zytedata/claude-measure-usage"
+Issues = "https://github.com/zytedata/claude-measure-usage/issues"
+
 [project.scripts]
 claude-measure-usage = "claude_measure_usage.__main__:main"
 
@@ -35,6 +41,29 @@ claude-measure-usage = "claude_measure_usage.__main__:main"
 dev = [
     "pytest",
 ]
+
+[tool.ruff.lint]
+# Pyflakes plus the error-level pycodestyle checks. The wider default set
+# flags patterns (blind excepts, mutable class defaults, try-except-pass)
+# that each need a per-site decision, so opt into those deliberately.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.bumpversion]
+current_version = "0.0.0"
+commit = true
+message = "Bump version: {current_version} → {new_version}"
+tag = true
+tag_name = "{new_version}"
+
+[[tool.bumpversion.files]]
+filename = "plugins/measure-usage/.claude-plugin/plugin.json"
+
+# Anchored so it does not also match `current_version` above.
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+regex = true
+search = '^version = "{current_version}"$'
+replace = 'version = "{new_version}"'
 
 # The package source lives under the Claude Code plugin tree so the
 # same files can be loaded by the /measure-usage skill. Point hatch

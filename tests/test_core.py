@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 # Add scripts dir to path so we can import claude_measure_usage
-PACKAGE_DIR = str(Path(__file__).parent.parent / "plugins" / "measure-usage" / "skills" / "measure-usage")
+PACKAGE_DIR = str(
+    Path(__file__).parent.parent
+    / "plugins"
+    / "measure-usage"
+    / "skills"
+    / "measure-usage"
+)
 sys.path.insert(0, PACKAGE_DIR)
 
 import claude_measure_usage as measure_usage  # noqa: E402
@@ -18,6 +24,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # ---------------------------------------------------------------------------
 # parse_ts
 # ---------------------------------------------------------------------------
+
 
 class TestParseTs:
     def test_z_suffix(self):
@@ -43,6 +50,7 @@ class TestParseTs:
 # _estimate_tokens
 # ---------------------------------------------------------------------------
 
+
 class TestEstimateTokens:
     def test_empty(self):
         assert measure_usage._estimate_tokens("") == 0
@@ -63,6 +71,7 @@ class TestEstimateTokens:
 # ---------------------------------------------------------------------------
 # parse_transcript
 # ---------------------------------------------------------------------------
+
 
 class TestParseTranscript:
     def test_basic_session(self):
@@ -100,7 +109,9 @@ class TestParseTranscript:
 
     def test_agent_calls_with_skill(self):
         result = measure_usage.parse_transcript(
-            str(FIXTURES / "with_nested_subagents" / "subagents" / "agent-parent1.jsonl")
+            str(
+                FIXTURES / "with_nested_subagents" / "subagents" / "agent-parent1.jsonl"
+            )
         )
         assert len(result["agent_calls"]) == 1
         call = result["agent_calls"][0]
@@ -183,10 +194,13 @@ class TestParseTranscript:
 # find_subagent_transcripts
 # ---------------------------------------------------------------------------
 
+
 class TestReadSubagentMeta:
     def test_reads_meta(self):
         meta = measure_usage.read_subagent_meta(
-            str(FIXTURES / "with_nested_subagents" / "subagents" / "agent-parent1.jsonl")
+            str(
+                FIXTURES / "with_nested_subagents" / "subagents" / "agent-parent1.jsonl"
+            )
         )
         assert meta["agentType"] == "general-purpose"
         assert meta["description"] == "analyze pages"
@@ -234,19 +248,30 @@ class TestFindSubagentTranscripts:
 # Token helpers
 # ---------------------------------------------------------------------------
 
+
 class TestModelCostScale:
     def test_fable(self):
-        assert measure_usage._model_cost_scale("claude-fable-5") == pytest.approx(10 / 3)
+        assert measure_usage._model_cost_scale("claude-fable-5") == pytest.approx(
+            10 / 3
+        )
 
     def test_mythos(self):
-        assert measure_usage._model_cost_scale("claude-mythos-5") == pytest.approx(10 / 3)
+        assert measure_usage._model_cost_scale("claude-mythos-5") == pytest.approx(
+            10 / 3
+        )
 
     def test_opus_current(self):
-        assert measure_usage._model_cost_scale("claude-opus-4-6") == pytest.approx(5 / 3)
-        assert measure_usage._model_cost_scale("claude-opus-4-5-20250301") == pytest.approx(5 / 3)
+        assert measure_usage._model_cost_scale("claude-opus-4-6") == pytest.approx(
+            5 / 3
+        )
+        assert measure_usage._model_cost_scale(
+            "claude-opus-4-5-20250301"
+        ) == pytest.approx(5 / 3)
 
     def test_opus_future(self):
-        assert measure_usage._model_cost_scale("claude-opus-5-0") == pytest.approx(5 / 3)
+        assert measure_usage._model_cost_scale("claude-opus-5-0") == pytest.approx(
+            5 / 3
+        )
 
     def test_opus_legacy(self):
         assert measure_usage._model_cost_scale("claude-opus-4-1-20250414") == 5.0
@@ -256,14 +281,22 @@ class TestModelCostScale:
         assert measure_usage._model_cost_scale("claude-sonnet-4-6") == 1.0
 
     def test_haiku_current(self):
-        assert measure_usage._model_cost_scale("claude-haiku-4-5-20251001") == pytest.approx(1 / 3)
+        assert measure_usage._model_cost_scale(
+            "claude-haiku-4-5-20251001"
+        ) == pytest.approx(1 / 3)
 
     def test_haiku_future(self):
-        assert measure_usage._model_cost_scale("claude-haiku-5-0") == pytest.approx(1 / 3)
+        assert measure_usage._model_cost_scale("claude-haiku-5-0") == pytest.approx(
+            1 / 3
+        )
 
     def test_haiku_legacy(self):
-        assert measure_usage._model_cost_scale("claude-3-5-haiku-20241022") == pytest.approx(0.267)
-        assert measure_usage._model_cost_scale("claude-3-haiku-20240307") == pytest.approx(0.267)
+        assert measure_usage._model_cost_scale(
+            "claude-3-5-haiku-20241022"
+        ) == pytest.approx(0.267)
+        assert measure_usage._model_cost_scale(
+            "claude-3-haiku-20240307"
+        ) == pytest.approx(0.267)
 
     def test_unknown_defaults_to_sonnet(self):
         assert measure_usage._model_cost_scale("unknown") == 1.0
@@ -398,14 +431,17 @@ def _write_agent_id_fixture(tmp_path, sub_start):
             "message": {
                 "role": "assistant",
                 "model": "claude-sonnet-4-6",
-                "content": [{
-                    "type": "tool_use",
-                    "id": "tuse_skill_1",
-                    "name": "Skill",
-                    "input": {"skill": "scrape-explore-site"},
-                }],
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tuse_skill_1",
+                        "name": "Skill",
+                        "input": {"skill": "scrape-explore-site"},
+                    }
+                ],
                 "usage": {
-                    "input_tokens": 10, "output_tokens": 5,
+                    "input_tokens": 10,
+                    "output_tokens": 5,
                     "cache_creation_input_tokens": 0,
                     "cache_read_input_tokens": 100,
                 },
@@ -418,11 +454,13 @@ def _write_agent_id_fixture(tmp_path, sub_start):
             "type": "user",
             "message": {
                 "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": "tuse_skill_1",
-                    "content": "done",
-                }],
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tuse_skill_1",
+                        "content": "done",
+                    }
+                ],
             },
             "uuid": "u2",
             "timestamp": "2026-04-07T10:00:35Z",
@@ -457,7 +495,8 @@ def _write_agent_id_fixture(tmp_path, sub_start):
                 "model": "claude-sonnet-4-6",
                 "content": [{"type": "text", "text": "ok"}],
                 "usage": {
-                    "input_tokens": 20, "output_tokens": 10,
+                    "input_tokens": 20,
+                    "output_tokens": 10,
                     "cache_creation_input_tokens": 0,
                     "cache_read_input_tokens": 50,
                 },
@@ -478,13 +517,20 @@ def _write_agent_id_fixture(tmp_path, sub_start):
 
 class TestFormatTree:
     def test_has_header(self):
-        nodes = [{
-            "path": "agent-abc.jsonl", "call_tool": "Agent",
-            "call_description": "research task", "meta": {},
-            "total_tokens": 500, "turn_count": 3,
-            "tokens_by_model": {"claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
-            "children": [],
-        }]
+        nodes = [
+            {
+                "path": "agent-abc.jsonl",
+                "call_tool": "Agent",
+                "call_description": "research task",
+                "meta": {},
+                "total_tokens": 500,
+                "turn_count": 3,
+                "tokens_by_model": {
+                    "claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)
+                },
+                "children": [],
+            }
+        ]
         lines = measure_usage._format_tree(nodes)
         assert lines[0] == "Breakdown:"
         assert "tokens" in lines[1]
@@ -492,13 +538,20 @@ class TestFormatTree:
         assert "context" in lines[1]
 
     def test_single_node(self):
-        nodes = [{
-            "path": "agent-abc.jsonl", "call_tool": "Agent",
-            "call_description": "research task", "meta": {},
-            "total_tokens": 500, "turn_count": 3,
-            "tokens_by_model": {"claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
-            "children": [],
-        }]
+        nodes = [
+            {
+                "path": "agent-abc.jsonl",
+                "call_tool": "Agent",
+                "call_description": "research task",
+                "meta": {},
+                "total_tokens": 500,
+                "turn_count": 3,
+                "tokens_by_model": {
+                    "claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)
+                },
+                "children": [],
+            }
+        ]
         lines = measure_usage._format_tree(nodes)
         # header + column headers + 1 data row
         assert len(lines) == 3
@@ -506,17 +559,32 @@ class TestFormatTree:
         assert "\u2514\u2500" in lines[2]
 
     def test_with_main(self):
-        nodes = [{
-            "path": "agent-abc.jsonl", "call_tool": "Agent",
-            "call_description": "task", "meta": {},
-            "total_tokens": 500, "turn_count": 3,
-            "tokens_by_model": {"claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
-            "children": [],
-        }]
-        main = {"tokens_by_model": {"claude-sonnet-4-6": {
-            "input_tokens": 100, "output_tokens": 50,
-            "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
-        }}, "turn_count": 5, "peak_context_tokens": 1000}
+        nodes = [
+            {
+                "path": "agent-abc.jsonl",
+                "call_tool": "Agent",
+                "call_description": "task",
+                "meta": {},
+                "total_tokens": 500,
+                "turn_count": 3,
+                "tokens_by_model": {
+                    "claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)
+                },
+                "children": [],
+            }
+        ]
+        main = {
+            "tokens_by_model": {
+                "claude-sonnet-4-6": {
+                    "input_tokens": 100,
+                    "output_tokens": 50,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                }
+            },
+            "turn_count": 5,
+            "peak_context_tokens": 1000,
+        }
         lines = measure_usage._format_tree(nodes, main)
         # header + column headers + main row + 1 data row
         assert len(lines) == 4
@@ -524,32 +592,55 @@ class TestFormatTree:
         assert "Agent task" in lines[3]
 
     def test_nested(self):
-        nodes = [{
-            "path": "agent-abc.jsonl", "call_tool": "Agent",
-            "call_description": "analyze pages", "meta": {},
-            "total_tokens": 500, "turn_count": 3,
-            "tokens_by_model": {"claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
-            "children": [{
-                "path": "agent-def.jsonl", "call_tool": "Skill",
-                "call_description": "scrape-page", "meta": {},
-                "total_tokens": 200, "turn_count": 2,
-                "tokens_by_model": {"claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
-                "children": [],
-            }],
-        }]
+        nodes = [
+            {
+                "path": "agent-abc.jsonl",
+                "call_tool": "Agent",
+                "call_description": "analyze pages",
+                "meta": {},
+                "total_tokens": 500,
+                "turn_count": 3,
+                "tokens_by_model": {
+                    "claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)
+                },
+                "children": [
+                    {
+                        "path": "agent-def.jsonl",
+                        "call_tool": "Skill",
+                        "call_description": "scrape-page",
+                        "meta": {},
+                        "total_tokens": 200,
+                        "turn_count": 2,
+                        "tokens_by_model": {
+                            "claude-sonnet-4-6": dict.fromkeys(
+                                measure_usage.TOKEN_KEYS, 0
+                            )
+                        },
+                        "children": [],
+                    }
+                ],
+            }
+        ]
         lines = measure_usage._format_tree(nodes)
         text = "\n".join(lines)
         assert "Agent analyze pages" in text
         assert "Skill scrape-page" in text
 
     def test_multiple_siblings(self):
-        node = lambda desc, tool="Agent": {
-            "path": "agent.jsonl", "call_tool": tool,
-            "call_description": desc, "meta": {},
-            "total_tokens": 100, "turn_count": 1,
-            "tokens_by_model": {"claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
-            "children": [],
-        }
+        def node(desc, tool="Agent"):
+            return {
+                "path": "agent.jsonl",
+                "call_tool": tool,
+                "call_description": desc,
+                "meta": {},
+                "total_tokens": 100,
+                "turn_count": 1,
+                "tokens_by_model": {
+                    "claude-sonnet-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)
+                },
+                "children": [],
+            }
+
         nodes = [node("first"), node("second"), node("third", "Skill")]
         lines = measure_usage._format_tree(nodes)
         text = "\n".join(lines)
@@ -561,8 +652,13 @@ class TestFormatTree:
 class TestComputeToolCosts:
     def test_basic(self):
         invocations = [
-            {"name": "Read", "model": "claude-sonnet-4-6",
-             "output_est": 10, "input_est": 100, "result_turn": 1},
+            {
+                "name": "Read",
+                "model": "claude-sonnet-4-6",
+                "output_est": 10,
+                "input_est": 100,
+                "result_turn": 1,
+            },
         ]
         costs = measure_usage.compute_tool_costs(invocations, total_turns=3)
         # marginal: (10*5 + 100) * 1.0 = 150
@@ -573,8 +669,13 @@ class TestComputeToolCosts:
 
     def test_opus_scaling(self):
         invocations = [
-            {"name": "Read", "model": "claude-opus-4-6",
-             "output_est": 10, "input_est": 100, "result_turn": 1},
+            {
+                "name": "Read",
+                "model": "claude-opus-4-6",
+                "output_est": 10,
+                "input_est": 100,
+                "result_turn": 1,
+            },
         ]
         costs = measure_usage.compute_tool_costs(invocations, total_turns=3)
         scale = 5 / 3  # Opus 4.6: $5 / $3
@@ -585,8 +686,13 @@ class TestComputeToolCosts:
 
     def test_no_accumulated_for_last_turn(self):
         invocations = [
-            {"name": "Read", "model": "claude-sonnet-4-6",
-             "output_est": 10, "input_est": 100, "result_turn": 4},
+            {
+                "name": "Read",
+                "model": "claude-sonnet-4-6",
+                "output_est": 10,
+                "input_est": 100,
+                "result_turn": 4,
+            },
         ]
         costs = measure_usage.compute_tool_costs(invocations, total_turns=5)
         # accumulated turns = max(0, 5 - 4 - 1) = 0
@@ -594,10 +700,20 @@ class TestComputeToolCosts:
 
     def test_multiple_invocations_same_tool(self):
         invocations = [
-            {"name": "Read", "model": "claude-sonnet-4-6",
-             "output_est": 5, "input_est": 100, "result_turn": 0},
-            {"name": "Read", "model": "claude-sonnet-4-6",
-             "output_est": 5, "input_est": 200, "result_turn": 3},
+            {
+                "name": "Read",
+                "model": "claude-sonnet-4-6",
+                "output_est": 5,
+                "input_est": 100,
+                "result_turn": 0,
+            },
+            {
+                "name": "Read",
+                "model": "claude-sonnet-4-6",
+                "output_est": 5,
+                "input_est": 200,
+                "result_turn": 3,
+            },
         ]
         costs = measure_usage.compute_tool_costs(invocations, total_turns=5)
         # First: marginal=(25+100)=125, accum=100*0.1*4=40
@@ -607,8 +723,10 @@ class TestComputeToolCosts:
 
     def test_merge_tool_costs(self):
         a = {"Read": {"marginal": 100, "accumulated": 50, "total": 150}}
-        b = {"Read": {"marginal": 200, "accumulated": 30, "total": 230},
-             "Grep": {"marginal": 80, "accumulated": 10, "total": 90}}
+        b = {
+            "Read": {"marginal": 200, "accumulated": 30, "total": 230},
+            "Grep": {"marginal": 80, "accumulated": 10, "total": 90},
+        }
         merged = measure_usage.merge_tool_costs(a, b)
         assert merged["Read"]["marginal"] == 300
         assert merged["Read"]["accumulated"] == 80
@@ -618,32 +736,68 @@ class TestComputeToolCosts:
 
 class TestTokenHelpers:
     def test_merge_tokens_by_model(self):
-        a = {"opus": {"input_tokens": 100, "output_tokens": 50,
-                       "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}
-        b = {"opus": {"input_tokens": 200, "output_tokens": 30,
-                       "cache_creation_input_tokens": 10, "cache_read_input_tokens": 0},
-             "haiku": {"input_tokens": 50, "output_tokens": 20,
-                        "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}
+        a = {
+            "opus": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            }
+        }
+        b = {
+            "opus": {
+                "input_tokens": 200,
+                "output_tokens": 30,
+                "cache_creation_input_tokens": 10,
+                "cache_read_input_tokens": 0,
+            },
+            "haiku": {
+                "input_tokens": 50,
+                "output_tokens": 20,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
+        }
         merged = measure_usage.merge_tokens_by_model(a, b)
         assert merged["opus"]["input_tokens"] == 300
         assert merged["opus"]["output_tokens"] == 80
         assert merged["haiku"]["input_tokens"] == 50
 
     def test_merge_disjoint_models(self):
-        a = {"opus": {"input_tokens": 100, "output_tokens": 0,
-                       "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}
-        b = {"haiku": {"input_tokens": 50, "output_tokens": 0,
-                        "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}
+        a = {
+            "opus": {
+                "input_tokens": 100,
+                "output_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            }
+        }
+        b = {
+            "haiku": {
+                "input_tokens": 50,
+                "output_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            }
+        }
         merged = measure_usage.merge_tokens_by_model(a, b)
         assert "opus" in merged
         assert "haiku" in merged
 
     def test_total_from_by_model(self):
         by_model = {
-            "opus": {"input_tokens": 100, "output_tokens": 50,
-                      "cache_creation_input_tokens": 10, "cache_read_input_tokens": 20},
-            "haiku": {"input_tokens": 30, "output_tokens": 10,
-                       "cache_creation_input_tokens": 0, "cache_read_input_tokens": 5},
+            "opus": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_creation_input_tokens": 10,
+                "cache_read_input_tokens": 20,
+            },
+            "haiku": {
+                "input_tokens": 30,
+                "output_tokens": 10,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 5,
+            },
         }
         totals = measure_usage.total_from_by_model(by_model)
         assert totals["input_tokens"] == 130
@@ -657,6 +811,7 @@ class TestTokenHelpers:
 # ---------------------------------------------------------------------------
 # cost_breakdown
 # ---------------------------------------------------------------------------
+
 
 class TestCostBreakdown:
     def test_with_tiers(self):
@@ -738,6 +893,7 @@ class TestCostBreakdown:
 # ---------------------------------------------------------------------------
 # compute_metrics
 # ---------------------------------------------------------------------------
+
 
 class TestComputeMetrics:
     def test_basic(self):
@@ -857,6 +1013,7 @@ class TestComputeMetrics:
 # format_metrics
 # ---------------------------------------------------------------------------
 
+
 class TestFormatMetrics:
     def _make_metrics(self, **overrides):
         defaults = {
@@ -870,8 +1027,10 @@ class TestFormatMetrics:
             },
             "tokens_by_model": {
                 "claude-sonnet-4-6": {
-                    "input_tokens": 400, "output_tokens": 200,
-                    "cache_creation_input_tokens": 100, "cache_read_input_tokens": 300,
+                    "input_tokens": 400,
+                    "output_tokens": 200,
+                    "cache_creation_input_tokens": 100,
+                    "cache_read_input_tokens": 300,
                 }
             },
             "peak_context_tokens": 800,
@@ -902,25 +1061,31 @@ class TestFormatMetrics:
         assert "By model" not in text  # single model
 
     def test_output_estimated_note(self):
-        text = measure_usage.format_metrics(self._make_metrics(
-            output_estimated={"turn_count": 3, "added_tokens": 26557},
-        ))
+        text = measure_usage.format_metrics(
+            self._make_metrics(
+                output_estimated={"turn_count": 3, "added_tokens": 26557},
+            )
+        )
         assert "3 turns missing final usage" in text
         assert "≈26.6K output tokens added" in text
 
     def test_no_output_estimated_note_when_clean(self):
-        text = measure_usage.format_metrics(self._make_metrics(
-            output_estimated={"turn_count": 0, "added_tokens": 0},
-        ))
+        text = measure_usage.format_metrics(
+            self._make_metrics(
+                output_estimated={"turn_count": 0, "added_tokens": 0},
+            )
+        )
         assert "missing final usage" not in text
 
     def test_tool_costs_displayed(self):
-        text = measure_usage.format_metrics(self._make_metrics(
-            tool_costs={
-                "Read": {"marginal": 45200, "accumulated": 3000, "total": 48200},
-                "Edit": {"marginal": 2100, "accumulated": 0, "total": 2100},
-            },
-        ))
+        text = measure_usage.format_metrics(
+            self._make_metrics(
+                tool_costs={
+                    "Read": {"marginal": 45200, "accumulated": 3000, "total": 48200},
+                    "Edit": {"marginal": 2100, "accumulated": 0, "total": 2100},
+                },
+            )
+        )
         assert "45.2K" in text
         assert "3.0K" in text
         assert "2.1K" in text
@@ -930,63 +1095,109 @@ class TestFormatMetrics:
         assert "carry" in text
 
     def test_tool_costs_small(self):
-        text = measure_usage.format_metrics(self._make_metrics(
-            tool_costs={
-                "Read": {"marginal": 150, "accumulated": 0, "total": 150},
-            },
-        ))
+        text = measure_usage.format_metrics(
+            self._make_metrics(
+                tool_costs={
+                    "Read": {"marginal": 150, "accumulated": 0, "total": 150},
+                },
+            )
+        )
         assert "150" in text
 
     def test_multi_model(self):
-        text = measure_usage.format_metrics(self._make_metrics(
-            tokens_by_model={
-                "claude-opus-4-6": {
-                    "input_tokens": 300, "output_tokens": 150,
-                    "cache_creation_input_tokens": 50, "cache_read_input_tokens": 200,
+        text = measure_usage.format_metrics(
+            self._make_metrics(
+                tokens_by_model={
+                    "claude-opus-4-6": {
+                        "input_tokens": 300,
+                        "output_tokens": 150,
+                        "cache_creation_input_tokens": 50,
+                        "cache_read_input_tokens": 200,
+                    },
+                    "claude-haiku-4-5-20251001": {
+                        "input_tokens": 100,
+                        "output_tokens": 50,
+                        "cache_creation_input_tokens": 50,
+                        "cache_read_input_tokens": 100,
+                    },
                 },
-                "claude-haiku-4-5-20251001": {
-                    "input_tokens": 100, "output_tokens": 50,
-                    "cache_creation_input_tokens": 50, "cache_read_input_tokens": 100,
-                },
-            },
-        ))
+            )
+        )
         assert "By model:" in text
         assert "opus:" in text
         assert "haiku:" in text
 
     def test_short_duration(self):
-        text = measure_usage.format_metrics(self._make_metrics(
-            duration_s=3.2,
-            user_message_count=0,
-        ))
+        text = measure_usage.format_metrics(
+            self._make_metrics(
+                duration_s=3.2,
+                user_message_count=0,
+            )
+        )
         assert "3.2s" in text
 
     def test_with_tree(self):
-        text = measure_usage.format_metrics(self._make_metrics(
-            subagent_count=2,
-            main={"tokens_by_model": {"claude-sonnet-4-6": {
-                "input_tokens": 200, "output_tokens": 100,
-                "cache_creation_input_tokens": 50, "cache_read_input_tokens": 150,
-            }}, "turn_count": 3},
-            tree=[
-                {"path": "agent-abc.jsonl", "call_tool": "Agent",
-                 "call_description": "research task", "meta": {},
-                 "total_tokens": 500, "turn_count": 3,
-                 "tokens_by_model": {"claude-haiku-4-5-20251001": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
-                 "children": [
-                     {"path": "agent-ghi.jsonl", "call_tool": "Skill",
-                      "call_description": "analyze-page", "meta": {},
-                      "total_tokens": 200, "turn_count": 2,
-                      "tokens_by_model": {"claude-haiku-4-5-20251001": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
-                      "children": []},
-                 ]},
-                {"path": "agent-def.jsonl", "call_tool": "Skill",
-                 "call_description": "scrape-data", "meta": {},
-                 "total_tokens": 300, "turn_count": 2,
-                 "tokens_by_model": {"claude-opus-4-6": dict.fromkeys(measure_usage.TOKEN_KEYS, 0)},
-                 "children": []},
-            ],
-        ))
+        text = measure_usage.format_metrics(
+            self._make_metrics(
+                subagent_count=2,
+                main={
+                    "tokens_by_model": {
+                        "claude-sonnet-4-6": {
+                            "input_tokens": 200,
+                            "output_tokens": 100,
+                            "cache_creation_input_tokens": 50,
+                            "cache_read_input_tokens": 150,
+                        }
+                    },
+                    "turn_count": 3,
+                },
+                tree=[
+                    {
+                        "path": "agent-abc.jsonl",
+                        "call_tool": "Agent",
+                        "call_description": "research task",
+                        "meta": {},
+                        "total_tokens": 500,
+                        "turn_count": 3,
+                        "tokens_by_model": {
+                            "claude-haiku-4-5-20251001": dict.fromkeys(
+                                measure_usage.TOKEN_KEYS, 0
+                            )
+                        },
+                        "children": [
+                            {
+                                "path": "agent-ghi.jsonl",
+                                "call_tool": "Skill",
+                                "call_description": "analyze-page",
+                                "meta": {},
+                                "total_tokens": 200,
+                                "turn_count": 2,
+                                "tokens_by_model": {
+                                    "claude-haiku-4-5-20251001": dict.fromkeys(
+                                        measure_usage.TOKEN_KEYS, 0
+                                    )
+                                },
+                                "children": [],
+                            },
+                        ],
+                    },
+                    {
+                        "path": "agent-def.jsonl",
+                        "call_tool": "Skill",
+                        "call_description": "scrape-data",
+                        "meta": {},
+                        "total_tokens": 300,
+                        "turn_count": 2,
+                        "tokens_by_model": {
+                            "claude-opus-4-6": dict.fromkeys(
+                                measure_usage.TOKEN_KEYS, 0
+                            )
+                        },
+                        "children": [],
+                    },
+                ],
+            )
+        )
         assert "Breakdown:" in text
         assert "Main session" in text
         assert "Agent research task" in text
@@ -998,23 +1209,28 @@ class TestFormatMetrics:
         assert "context" in text
 
     def test_server_tool_use(self):
-        text = measure_usage.format_metrics(self._make_metrics(
-            server_tool_use={"web_search_requests": 3, "web_fetch_requests": 2},
-        ))
+        text = measure_usage.format_metrics(
+            self._make_metrics(
+                server_tool_use={"web_search_requests": 3, "web_fetch_requests": 2},
+            )
+        )
         assert "Server tool use:" in text
         assert "web search: 3" in text
         assert "web fetch: 2" in text
 
     def test_server_tool_use_zeros_hidden(self):
-        text = measure_usage.format_metrics(self._make_metrics(
-            server_tool_use={"web_search_requests": 0, "web_fetch_requests": 0},
-        ))
+        text = measure_usage.format_metrics(
+            self._make_metrics(
+                server_tool_use={"web_search_requests": 0, "web_fetch_requests": 0},
+            )
+        )
         assert "Server tool use" not in text
 
 
 # ---------------------------------------------------------------------------
 # State management
 # ---------------------------------------------------------------------------
+
 
 class TestStateManagement:
     def test_save_load_remove(self, tmp_path, monkeypatch):
@@ -1034,9 +1250,7 @@ class TestStateManagement:
         assert loaded == state
 
         # State file uses session ID as filename
-        assert os.path.exists(
-            os.path.join(measure_usage.SESSIONS_DIR, "abc-123.json")
-        )
+        assert os.path.exists(os.path.join(measure_usage.SESSIONS_DIR, "abc-123.json"))
 
         measure_usage.remove_state(sid)
         assert measure_usage.load_state(sid) is None
@@ -1062,9 +1276,11 @@ class TestStateManagement:
         ids = {sid for sid, _ in sessions}
         assert ids == {"sess-1", "sess-2"}
 
+
 # ---------------------------------------------------------------------------
 # Commands (integration)
 # ---------------------------------------------------------------------------
+
 
 class TestFindTranscriptPath:
     def test_finds_by_cwd(self, tmp_path, monkeypatch):
@@ -1075,9 +1291,7 @@ class TestFindTranscriptPath:
         transcript = project_dir / "session-123.jsonl"
         transcript.write_text("")
 
-        result = measure_usage.find_transcript_path(
-            "session-123", cwd="/tmp/myproject"
-        )
+        result = measure_usage.find_transcript_path("session-123", cwd="/tmp/myproject")
         assert result == str(transcript)
 
     def test_fallback_search(self, tmp_path, monkeypatch):
@@ -1088,9 +1302,7 @@ class TestFindTranscriptPath:
         transcript.write_text("")
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        result = measure_usage.find_transcript_path(
-            "session-456", cwd="/wrong/path"
-        )
+        result = measure_usage.find_transcript_path("session-456", cwd="/wrong/path")
         assert result == str(transcript)
 
     def test_not_found(self, tmp_path, monkeypatch):
@@ -1111,7 +1323,8 @@ class TestCommands:
     def _patch_resolve(self, monkeypatch):
         """Patch _resolve_transcript to map session IDs to fixture paths."""
         monkeypatch.setattr(
-            mu_commands, "_resolve_transcript",
+            mu_commands,
+            "_resolve_transcript",
             lambda sid: self.TRANSCRIPTS.get(sid, sid),
         )
 
@@ -1125,7 +1338,9 @@ class TestCommands:
         transcript = tmp_path / "session.jsonl"
         transcript.write_bytes((FIXTURES / "basic_session.jsonl").read_bytes())
         monkeypatch.setattr(
-            mu_commands, "_resolve_transcript", lambda sid: str(transcript),
+            mu_commands,
+            "_resolve_transcript",
+            lambda sid: str(transcript),
         )
 
         mu_commands.cmd_start("sess-dyn")
@@ -1219,6 +1434,7 @@ class TestCommands:
 # Per-turn rows (parse_transcript output)
 # ---------------------------------------------------------------------------
 
+
 class TestPerTurnRows:
     def test_basic_session_turn_rows(self):
         result = measure_usage.parse_transcript(str(FIXTURES / "basic_session.jsonl"))
@@ -1256,6 +1472,7 @@ class TestPerTurnRows:
 # ---------------------------------------------------------------------------
 # turns_label
 # ---------------------------------------------------------------------------
+
 
 class TestTurnLabel:
     def test_prefers_text_preview(self):
@@ -1385,13 +1602,34 @@ class TestMsgIdDedupe:
             "cache_read_input_tokens": 100,
         }
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "thinking", "thinking": "..."}], usage),
-            self._assistant("u2", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "tool_use", "id": "t1", "name": "Read",
-                              "input": {"file_path": "/a.py"}}], usage),
-            self._assistant("u3", "msg_B", "2026-04-07T10:00:05Z",
-                            [{"type": "text", "text": "done"}], usage),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [{"type": "thinking", "thinking": "..."}],
+                usage,
+            ),
+            self._assistant(
+                "u2",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Read",
+                        "input": {"file_path": "/a.py"},
+                    }
+                ],
+                usage,
+            ),
+            self._assistant(
+                "u3",
+                "msg_B",
+                "2026-04-07T10:00:05Z",
+                [{"type": "text", "text": "done"}],
+                usage,
+            ),
         ]
         path = self._write(tmp_path, entries)
 
@@ -1425,17 +1663,41 @@ class TestMsgIdDedupe:
             "cache_read_input_tokens": 0,
         }
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "text", "text": "working"}],
-                            {**base, "output_tokens": 4}),
-            self._assistant("u2", "msg_A", "2026-04-07T10:00:01Z",
-                            [{"type": "tool_use", "id": "t1", "name": "Bash",
-                              "input": {"command": "ls"}}],
-                            {**base, "output_tokens": 4}),
-            self._assistant("u3", "msg_A", "2026-04-07T10:00:02Z",
-                            [{"type": "tool_use", "id": "t2", "name": "Bash",
-                              "input": {"command": "pwd"}}],
-                            {**base, "output_tokens": 175}),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [{"type": "text", "text": "working"}],
+                {**base, "output_tokens": 4},
+            ),
+            self._assistant(
+                "u2",
+                "msg_A",
+                "2026-04-07T10:00:01Z",
+                [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Bash",
+                        "input": {"command": "ls"},
+                    }
+                ],
+                {**base, "output_tokens": 4},
+            ),
+            self._assistant(
+                "u3",
+                "msg_A",
+                "2026-04-07T10:00:02Z",
+                [
+                    {
+                        "type": "tool_use",
+                        "id": "t2",
+                        "name": "Bash",
+                        "input": {"command": "pwd"},
+                    }
+                ],
+                {**base, "output_tokens": 175},
+            ),
         ]
         path = self._write(tmp_path, entries)
 
@@ -1464,8 +1726,13 @@ class TestMsgIdDedupe:
             "cache_read_input_tokens": 64000,
         }
         entries = [
-            self._assistant("u1", "msg_Z", "2026-04-10T21:40:56Z",
-                            [{"type": "thinking", "thinking": "..."}], usage),
+            self._assistant(
+                "u1",
+                "msg_Z",
+                "2026-04-10T21:40:56Z",
+                [{"type": "thinking", "thinking": "..."}],
+                usage,
+            ),
             {
                 "type": "system",
                 "uuid": "sys1",
@@ -1473,8 +1740,13 @@ class TestMsgIdDedupe:
                 "sessionId": "s1",
                 "message": {},
             },
-            self._assistant("u2", "msg_Z", "2026-04-10T21:41:10Z",
-                            [{"type": "text", "text": "## How it works"}], usage),
+            self._assistant(
+                "u2",
+                "msg_Z",
+                "2026-04-10T21:41:10Z",
+                [{"type": "text", "text": "## How it works"}],
+                usage,
+            ),
         ]
         path = self._write(tmp_path, entries)
 
@@ -1493,10 +1765,20 @@ class TestMsgIdDedupe:
             "cache_read_input_tokens": 1000,
         }
         entries = [
-            self._assistant(f"u{i}", "msg_X", "2026-04-07T10:00:00Z",
-                            [{"type": "tool_use", "id": f"t{i}",
-                              "name": "TaskCreate",
-                              "input": {"subject": f"task {i}"}}], usage)
+            self._assistant(
+                f"u{i}",
+                "msg_X",
+                "2026-04-07T10:00:00Z",
+                [
+                    {
+                        "type": "tool_use",
+                        "id": f"t{i}",
+                        "name": "TaskCreate",
+                        "input": {"subject": f"task {i}"},
+                    }
+                ],
+                usage,
+            )
             for i in range(7)
         ]
         path = self._write(tmp_path, entries)
@@ -1528,8 +1810,9 @@ class TestMissingFinalUsage:
         path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
         return str(path)
 
-    def _assistant(self, uuid, msg_id, ts, content, usage,
-                   stop=None, model="claude-sonnet-4-6"):
+    def _assistant(
+        self, uuid, msg_id, ts, content, usage, stop=None, model="claude-sonnet-4-6"
+    ):
         return {
             "type": "assistant",
             "uuid": uuid,
@@ -1561,21 +1844,44 @@ class TestMissingFinalUsage:
         # chars but a stale partial of 2 output tokens -> estimated at
         # 3000 / 3.0 = 1000.
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "text", "text": "y" * 3000}],
-                            self._usage(1000), stop="end_turn"),
-            self._assistant("u2", "msg_C", "2026-04-07T10:00:02Z",
-                            [{"type": "text", "text": "y" * 3000}],
-                            self._usage(1000), stop="end_turn"),
-            self._assistant("u3", "msg_D", "2026-04-07T10:00:04Z",
-                            [{"type": "text", "text": "y" * 3000}],
-                            self._usage(1000), stop="end_turn"),
-            self._assistant("u4", "msg_B", "2026-04-07T10:00:05Z",
-                            [{"type": "text", "text": "x" * 1000}],
-                            self._usage(2)),
-            self._assistant("u5", "msg_B", "2026-04-07T10:00:08Z",
-                            [{"type": "text", "text": "x" * 2000}],
-                            self._usage(2)),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [{"type": "text", "text": "y" * 3000}],
+                self._usage(1000),
+                stop="end_turn",
+            ),
+            self._assistant(
+                "u2",
+                "msg_C",
+                "2026-04-07T10:00:02Z",
+                [{"type": "text", "text": "y" * 3000}],
+                self._usage(1000),
+                stop="end_turn",
+            ),
+            self._assistant(
+                "u3",
+                "msg_D",
+                "2026-04-07T10:00:04Z",
+                [{"type": "text", "text": "y" * 3000}],
+                self._usage(1000),
+                stop="end_turn",
+            ),
+            self._assistant(
+                "u4",
+                "msg_B",
+                "2026-04-07T10:00:05Z",
+                [{"type": "text", "text": "x" * 1000}],
+                self._usage(2),
+            ),
+            self._assistant(
+                "u5",
+                "msg_B",
+                "2026-04-07T10:00:08Z",
+                [{"type": "text", "text": "x" * 2000}],
+                self._usage(2),
+            ),
         ]
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
@@ -1598,12 +1904,21 @@ class TestMissingFinalUsage:
         # 3.0), the measured ratio is not trusted — the fallback of
         # 2.6 chars/token applies: 2600 chars -> 1000 tokens.
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "text", "text": "y" * 3000}],
-                            self._usage(1000), stop="end_turn"),
-            self._assistant("u2", "msg_B", "2026-04-07T10:00:05Z",
-                            [{"type": "text", "text": "x" * 2600}],
-                            self._usage(2)),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [{"type": "text", "text": "y" * 3000}],
+                self._usage(1000),
+                stop="end_turn",
+            ),
+            self._assistant(
+                "u2",
+                "msg_B",
+                "2026-04-07T10:00:05Z",
+                [{"type": "text", "text": "x" * 2600}],
+                self._usage(2),
+            ),
         ]
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
@@ -1613,9 +1928,13 @@ class TestMissingFinalUsage:
         # No complete turns to calibrate on -> the measured fallback of
         # 2.6 chars/token applies: 2600 chars -> 1000 tokens.
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "text", "text": "x" * 2600}],
-                            self._usage(2)),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [{"type": "text", "text": "x" * 2600}],
+                self._usage(2),
+            ),
         ]
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
@@ -1628,18 +1947,38 @@ class TestMissingFinalUsage:
         # Sonnet calibrates at 3.0 chars/token; the incomplete Haiku
         # turn has no same-model data so the cross-model ratio applies.
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "text", "text": "y" * 3000}],
-                            self._usage(1000), stop="end_turn"),
-            self._assistant("u2", "msg_C", "2026-04-07T10:00:02Z",
-                            [{"type": "text", "text": "y" * 3000}],
-                            self._usage(1000), stop="end_turn"),
-            self._assistant("u3", "msg_D", "2026-04-07T10:00:04Z",
-                            [{"type": "text", "text": "y" * 3000}],
-                            self._usage(1000), stop="end_turn"),
-            self._assistant("u4", "msg_B", "2026-04-07T10:00:05Z",
-                            [{"type": "text", "text": "x" * 300}],
-                            self._usage(1), model="claude-haiku-4-5"),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [{"type": "text", "text": "y" * 3000}],
+                self._usage(1000),
+                stop="end_turn",
+            ),
+            self._assistant(
+                "u2",
+                "msg_C",
+                "2026-04-07T10:00:02Z",
+                [{"type": "text", "text": "y" * 3000}],
+                self._usage(1000),
+                stop="end_turn",
+            ),
+            self._assistant(
+                "u3",
+                "msg_D",
+                "2026-04-07T10:00:04Z",
+                [{"type": "text", "text": "y" * 3000}],
+                self._usage(1000),
+                stop="end_turn",
+            ),
+            self._assistant(
+                "u4",
+                "msg_B",
+                "2026-04-07T10:00:05Z",
+                [{"type": "text", "text": "x" * 300}],
+                self._usage(1),
+                model="claude-haiku-4-5",
+            ),
         ]
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
@@ -1653,22 +1992,51 @@ class TestMissingFinalUsage:
         assert len(json.dumps(tool_input, ensure_ascii=False)) == 2000
         entries = []
         for i in range(3):
-            entries.append(self._assistant(
-                f"t{i}", f"msg_T{i}", f"2026-04-07T10:00:0{i}Z",
-                [{"type": "text", "text": "y" * 3000}],
-                self._usage(1000), stop="end_turn"))
-            entries.append(self._assistant(
-                f"j{i}", f"msg_J{i}", f"2026-04-07T10:01:0{i}Z",
-                [{"type": "tool_use", "id": f"tu{i}", "name": "Write",
-                  "input": tool_input}],
-                self._usage(1000), stop="tool_use"))
+            entries.append(
+                self._assistant(
+                    f"t{i}",
+                    f"msg_T{i}",
+                    f"2026-04-07T10:00:0{i}Z",
+                    [{"type": "text", "text": "y" * 3000}],
+                    self._usage(1000),
+                    stop="end_turn",
+                )
+            )
+            entries.append(
+                self._assistant(
+                    f"j{i}",
+                    f"msg_J{i}",
+                    f"2026-04-07T10:01:0{i}Z",
+                    [
+                        {
+                            "type": "tool_use",
+                            "id": f"tu{i}",
+                            "name": "Write",
+                            "input": tool_input,
+                        }
+                    ],
+                    self._usage(1000),
+                    stop="tool_use",
+                )
+            )
         flagged_input = {"content": "w" * 3985}  # 4000 chars as JSON
         assert len(json.dumps(flagged_input, ensure_ascii=False)) == 4000
-        entries.append(self._assistant(
-            "u9", "msg_B", "2026-04-07T10:02:00Z",
-            [{"type": "tool_use", "id": "tu9", "name": "Write",
-              "input": flagged_input}],
-            self._usage(2)))
+        entries.append(
+            self._assistant(
+                "u9",
+                "msg_B",
+                "2026-04-07T10:02:00Z",
+                [
+                    {
+                        "type": "tool_use",
+                        "id": "tu9",
+                        "name": "Write",
+                        "input": flagged_input,
+                    }
+                ],
+                self._usage(2),
+            )
+        )
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
         # tool pool ratio 2.0 -> 4000 / 2.0 = 2000 (prose ratio would
@@ -1682,16 +2050,32 @@ class TestMissingFinalUsage:
         flagged_input = {"content": "w" * 2985}  # 3000 chars as JSON
         assert len(json.dumps(flagged_input, ensure_ascii=False)) == 3000
         entries = [
-            self._assistant(f"t{i}", f"msg_T{i}", f"2026-04-07T10:00:0{i}Z",
-                            [{"type": "text", "text": "y" * 3000}],
-                            self._usage(1000), stop="end_turn")
+            self._assistant(
+                f"t{i}",
+                f"msg_T{i}",
+                f"2026-04-07T10:00:0{i}Z",
+                [{"type": "text", "text": "y" * 3000}],
+                self._usage(1000),
+                stop="end_turn",
+            )
             for i in range(3)
         ]
-        entries.append(self._assistant(
-            "u9", "msg_B", "2026-04-07T10:02:00Z",
-            [{"type": "tool_use", "id": "tu9", "name": "Write",
-              "input": flagged_input}],
-            self._usage(2)))
+        entries.append(
+            self._assistant(
+                "u9",
+                "msg_B",
+                "2026-04-07T10:02:00Z",
+                [
+                    {
+                        "type": "tool_use",
+                        "id": "tu9",
+                        "name": "Write",
+                        "input": flagged_input,
+                    }
+                ],
+                self._usage(2),
+            )
+        )
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
         assert result["turns"][-1]["out_tokens"] == 1000  # 3000 / 3.0
@@ -1700,8 +2084,7 @@ class TestMissingFinalUsage:
         # json.dumps({"content": "z" * n}) is n + 15 chars long.
         inp = {"content": "z" * (json_chars - 15)}
         assert len(json.dumps(inp, ensure_ascii=False)) == json_chars
-        return {"type": "tool_use", "id": f"tu{i}", "name": "Write",
-                "input": inp}
+        return {"type": "tool_use", "id": f"tu{i}", "name": "Write", "input": inp}
 
     def test_fit_estimates_with_per_turn_constant(self, tmp_path):
         # With enough complete turns, estimation uses a least-squares
@@ -1712,9 +2095,15 @@ class TestMissingFinalUsage:
         # 1000 + 1000 + 50 = 2050. A blended ratio could not: the
         # per-turn constant is invisible to it.
         samples = [
-            (3000, 0, 1050), (6000, 0, 2050), (9000, 0, 3050),
-            (0, 2000, 1050), (0, 4000, 2050), (0, 6000, 3050),
-            (3000, 2000, 2050), (6000, 4000, 4050), (3000, 4000, 3050),
+            (3000, 0, 1050),
+            (6000, 0, 2050),
+            (9000, 0, 3050),
+            (0, 2000, 1050),
+            (0, 4000, 2050),
+            (0, 6000, 3050),
+            (3000, 2000, 2050),
+            (6000, 4000, 4050),
+            (3000, 4000, 3050),
         ]
         entries = []
         for i, (text, tool, out) in enumerate(samples):
@@ -1723,14 +2112,25 @@ class TestMissingFinalUsage:
                 content.append({"type": "text", "text": "y" * text})
             if tool:
                 content.append(self._tool_block(i, tool))
-            entries.append(self._assistant(
-                f"u{i}", f"msg_{i}", f"2026-04-07T10:00:{i:02d}Z",
-                content, self._usage(out), stop="end_turn"))
-        entries.append(self._assistant(
-            "u99", "msg_B", "2026-04-07T10:01:00Z",
-            [{"type": "text", "text": "x" * 3000},
-             self._tool_block(99, 2000)],
-            self._usage(2)))
+            entries.append(
+                self._assistant(
+                    f"u{i}",
+                    f"msg_{i}",
+                    f"2026-04-07T10:00:{i:02d}Z",
+                    content,
+                    self._usage(out),
+                    stop="end_turn",
+                )
+            )
+        entries.append(
+            self._assistant(
+                "u99",
+                "msg_B",
+                "2026-04-07T10:01:00Z",
+                [{"type": "text", "text": "x" * 3000}, self._tool_block(99, 2000)],
+                self._usage(2),
+            )
+        )
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
         assert result["turns"][-1]["out_tokens"] == 2050
@@ -1741,15 +2141,25 @@ class TestMissingFinalUsage:
         # constant) — the pooled same-model ratio (3.0) applies
         # instead of a bogus fit or the 2.6 constant.
         entries = [
-            self._assistant(f"u{i}", f"msg_{i}", f"2026-04-07T10:00:{i:02d}Z",
-                            [{"type": "text", "text": "y" * 3000}],
-                            self._usage(1000), stop="end_turn")
+            self._assistant(
+                f"u{i}",
+                f"msg_{i}",
+                f"2026-04-07T10:00:{i:02d}Z",
+                [{"type": "text", "text": "y" * 3000}],
+                self._usage(1000),
+                stop="end_turn",
+            )
             for i in range(8)
         ]
-        entries.append(self._assistant(
-            "u99", "msg_B", "2026-04-07T10:01:00Z",
-            [{"type": "text", "text": "x" * 3000}],
-            self._usage(2)))
+        entries.append(
+            self._assistant(
+                "u99",
+                "msg_B",
+                "2026-04-07T10:01:00Z",
+                [{"type": "text", "text": "x" * 3000}],
+                self._usage(2),
+            )
+        )
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
         assert result["turns"][-1]["out_tokens"] == 1000  # 3000 / 3.0
@@ -1759,9 +2169,13 @@ class TestMissingFinalUsage:
         # content-based estimate comes out smaller, the booked value
         # stands. The row is still flagged — its output is unverified.
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "text", "text": "x" * 260}],
-                            self._usage(500)),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [{"type": "text", "text": "x" * 260}],
+                self._usage(500),
+            ),
         ]
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
@@ -1775,9 +2189,14 @@ class TestMissingFinalUsage:
         # A stop_reason on any entry of the group means the final usage
         # was written — large content must not trigger estimation.
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "text", "text": "x" * 50000}],
-                            self._usage(30), stop="tool_use"),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [{"type": "text", "text": "x" * 50000}],
+                self._usage(30),
+                stop="tool_use",
+            ),
         ]
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
@@ -1793,10 +2212,20 @@ class TestMissingFinalUsage:
         file_text = "z" * 2600
         input_chars = len(json.dumps({"content": file_text}, ensure_ascii=False))
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "tool_use", "id": "t1", "name": "Write",
-                              "input": {"content": file_text}}],
-                            self._usage(2)),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Write",
+                        "input": {"content": file_text},
+                    }
+                ],
+                self._usage(2),
+            ),
         ]
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
@@ -1809,9 +2238,14 @@ class TestMissingFinalUsage:
         # API-error placeholders (<synthetic> model) never billed
         # anything; their error text must not produce estimated tokens.
         entries = [
-            self._assistant("u1", "msg_A", "2026-04-07T10:00:00Z",
-                            [{"type": "text", "text": "e" * 5000}],
-                            self._usage(0), model="<synthetic>"),
+            self._assistant(
+                "u1",
+                "msg_A",
+                "2026-04-07T10:00:00Z",
+                [{"type": "text", "text": "e" * 5000}],
+                self._usage(0),
+                model="<synthetic>",
+            ),
         ]
         result = measure_usage.parse_transcript(self._write(tmp_path, entries))
 
@@ -1830,32 +2264,57 @@ class TestNonturnRows:
         return str(path)
 
     def test_user_text_builds_user_row(self, tmp_path):
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content": "hello world"}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {"role": "user", "content": "hello world"},
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert len(rows) == 1
         assert rows[0]["kind"] == "user"
         assert "hello world" in rows[0]["what"]
 
     def test_interrupt_detected(self, tmp_path):
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content": [
-                 {"type": "text", "text": "[Request interrupted by user for tool use]"},
-             ]}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "[Request interrupted by user for tool use]",
+                            },
+                        ],
+                    },
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert len(rows) == 1
         assert rows[0]["kind"] == "interrupt"
         assert "interrupted" in rows[0]["what"].lower()
 
     def test_permission_mode_row(self, tmp_path):
-        path = self._write(tmp_path, [
-            {"type": "permission-mode", "permissionMode": "acceptEdits",
-             "timestamp": "2026-04-07T10:00:00Z", "sessionId": "s1"},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "permission-mode",
+                    "permissionMode": "acceptEdits",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "sessionId": "s1",
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert len(rows) == 1
         assert rows[0]["kind"] == "permission-mode"
@@ -1866,22 +2325,44 @@ class TestNonturnRows:
         filtered out — they're noisy (one per tool call) and their
         timestamps are preserved via last_tool_result_ts on the
         preceding turn for the renderer's gap column."""
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content": [
-                 {"type": "tool_result", "tool_use_id": "toolu_01Y5P3f8KrVaz", "content": "ok"},
-             ]}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_01Y5P3f8KrVaz",
+                                "content": "ok",
+                            },
+                        ],
+                    },
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert rows == []
 
     def test_attachment_deferred_tools_delta(self, tmp_path):
-        path = self._write(tmp_path, [
-            {"type": "attachment", "timestamp": "2026-04-07T10:00:00Z",
-             "sessionId": "s1",
-             "attachment": {"type": "deferred_tools_delta",
-                            "addedNames": ["A", "B", "C"], "removedNames": []}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "attachment",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "sessionId": "s1",
+                    "attachment": {
+                        "type": "deferred_tools_delta",
+                        "addedNames": ["A", "B", "C"],
+                        "removedNames": [],
+                    },
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert len(rows) == 1
         assert rows[0]["kind"] == "attachment:deferred_tools_delta"
@@ -1902,11 +2383,11 @@ class TestNonturnRows:
             }
 
         rows = [
-            mk_turn(1, cache_w=1000),   # before boundary, 2 turns after it in epoch
+            mk_turn(1, cache_w=1000),  # before boundary, 2 turns after it in epoch
             mk_turn(2),
             mk_turn(3),
             {"kind": "system:compact_boundary"},
-            mk_turn(4, cache_w=1000),   # after boundary, 2 turns after it in epoch
+            mk_turn(4, cache_w=1000),  # after boundary, 2 turns after it in epoch
             mk_turn(5),
             mk_turn(6),
         ]
@@ -1959,10 +2440,16 @@ class TestNonturnRows:
     def test_unknown_type_still_renders(self, tmp_path):
         """Unknown types fall through to a generic builder so nothing is
         silently dropped."""
-        path = self._write(tmp_path, [
-            {"type": "some-new-type", "timestamp": "2026-04-07T10:00:00Z",
-             "sessionId": "s1"},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "some-new-type",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "sessionId": "s1",
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert len(rows) == 1
         assert rows[0]["kind"] == "some-new-type"
@@ -1972,22 +2459,41 @@ class TestNonturnRows:
         """A logical turn split across thinking/text/tool_use entries
         should have end_ts = timestamp of the last entry, so the
         renderer can compute model-generation duration."""
-        usage = {"input_tokens": 1, "output_tokens": 1,
-                 "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
-        path = self._write(tmp_path, [
-            {"type": "assistant", "uuid": "a1",
-             "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "assistant", "id": "m1",
-                         "model": "claude-sonnet-4-6",
-                         "content": [{"type": "thinking", "thinking": "..."}],
-                         "usage": usage}},
-            {"type": "assistant", "uuid": "a2",
-             "timestamp": "2026-04-07T10:00:14Z",
-             "message": {"role": "assistant", "id": "m1",
-                         "model": "claude-sonnet-4-6",
-                         "content": [{"type": "text", "text": "done"}],
-                         "usage": usage}},
-        ])
+        usage = {
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "assistant",
+                    "uuid": "a1",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "assistant",
+                        "id": "m1",
+                        "model": "claude-sonnet-4-6",
+                        "content": [{"type": "thinking", "thinking": "..."}],
+                        "usage": usage,
+                    },
+                },
+                {
+                    "type": "assistant",
+                    "uuid": "a2",
+                    "timestamp": "2026-04-07T10:00:14Z",
+                    "message": {
+                        "role": "assistant",
+                        "id": "m1",
+                        "model": "claude-sonnet-4-6",
+                        "content": [{"type": "text", "text": "done"}],
+                        "usage": usage,
+                    },
+                },
+            ],
+        )
         result = measure_usage.parse_transcript(path)
         assert len(result["turns"]) == 1
         t = result["turns"][0]
@@ -1997,28 +2503,62 @@ class TestNonturnRows:
         """tool_result timestamps should land on the turn that fired
         the tool, not on a new row, so the renderer can compute the
         'gap' between tools finishing and the next turn starting."""
-        usage = {"input_tokens": 1, "output_tokens": 1,
-                 "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
-        path = self._write(tmp_path, [
-            {"type": "assistant", "uuid": "a1",
-             "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "assistant", "id": "m1",
-                         "model": "claude-sonnet-4-6",
-                         "content": [{"type": "tool_use", "id": "t1",
-                                      "name": "Bash",
-                                      "input": {"command": "sleep 5"}}],
-                         "usage": usage}},
-            {"type": "user", "timestamp": "2026-04-07T10:00:05Z",
-             "message": {"role": "user", "content": [
-                 {"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
-             ]}},
-            {"type": "assistant", "uuid": "a2",
-             "timestamp": "2026-04-07T10:00:08Z",
-             "message": {"role": "assistant", "id": "m2",
-                         "model": "claude-sonnet-4-6",
-                         "content": [{"type": "text", "text": "done"}],
-                         "usage": usage}},
-        ])
+        usage = {
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "assistant",
+                    "uuid": "a1",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "assistant",
+                        "id": "m1",
+                        "model": "claude-sonnet-4-6",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "t1",
+                                "name": "Bash",
+                                "input": {"command": "sleep 5"},
+                            }
+                        ],
+                        "usage": usage,
+                    },
+                },
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:05Z",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "t1",
+                                "content": "ok",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "type": "assistant",
+                    "uuid": "a2",
+                    "timestamp": "2026-04-07T10:00:08Z",
+                    "message": {
+                        "role": "assistant",
+                        "id": "m2",
+                        "model": "claude-sonnet-4-6",
+                        "content": [{"type": "text", "text": "done"}],
+                        "usage": usage,
+                    },
+                },
+            ],
+        )
         result = measure_usage.parse_transcript(path)
         # tool_result row dropped; two turn rows remain.
         assert len(result["rows"]) == 2
@@ -2033,51 +2573,91 @@ class TestNonturnRows:
         """The 'Base directory for this skill: …' preamble Claude Code
         feeds back when a Skill tool fires is a client-side wrapper,
         not a real user message — drop it."""
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content":
-                 "Base directory for this skill: /path/to/skill\n\n# Skill\n..."}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": "Base directory for this skill: /path/to/skill\n\n# Skill\n...",
+                    },
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert rows == []
 
     def test_task_notification_shim_dropped(self, tmp_path):
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content":
-                 "<task-notification><task-id>x</task-id><status>complete</status></task-notification>"}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": "<task-notification><task-id>x</task-id><status>complete</status></task-notification>",
+                    },
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert rows == []
 
     def test_local_command_shim_dropped(self, tmp_path):
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content":
-                 "<local-command-stdout>installed ok</local-command-stdout>"}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": "<local-command-stdout>installed ok</local-command-stdout>",
+                    },
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert rows == []
 
     def test_bash_input_shim_dropped(self, tmp_path):
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content":
-                 "<bash-input>git diff</bash-input>"}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": "<bash-input>git diff</bash-input>",
+                    },
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert rows == []
 
     def test_slash_command_extracted(self, tmp_path):
         """Slash command wrappers carry real intent — render them
         compactly instead of dropping."""
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content":
-                 "<command-message>simplify</command-message>\n"
-                 "<command-name>/simplify</command-name>\n"
-                 "<command-args>--no-tests</command-args>"}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": "<command-message>simplify</command-message>\n"
+                        "<command-name>/simplify</command-name>\n"
+                        "<command-args>--no-tests</command-args>",
+                    },
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert len(rows) == 1
         assert rows[0]["kind"] == "slash-command"
@@ -2085,12 +2665,20 @@ class TestNonturnRows:
         assert "--no-tests" in rows[0]["what"]
 
     def test_slash_command_no_args(self, tmp_path):
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content":
-                 "<command-message>compact</command-message>\n"
-                 "<command-name>/compact</command-name>"}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": "<command-message>compact</command-message>\n"
+                        "<command-name>/compact</command-name>",
+                    },
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert len(rows) == 1
         assert rows[0]["kind"] == "slash-command"
@@ -2099,10 +2687,16 @@ class TestNonturnRows:
     def test_genuine_user_text_kept(self, tmp_path):
         """Real user prompts must NOT be filtered by accident — only
         client-side shim wrappers should be dropped."""
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content": "rewrite the function"}},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {"role": "user", "content": "rewrite the function"},
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         assert len(rows) == 1
         assert rows[0]["kind"] == "user"
@@ -2111,20 +2705,39 @@ class TestNonturnRows:
     def test_mixed_chronological_order(self, tmp_path):
         """A mixed transcript produces rows in chronological order with
         turns and non-turn events interleaved."""
-        path = self._write(tmp_path, [
-            {"type": "user", "timestamp": "2026-04-07T10:00:00Z",
-             "message": {"role": "user", "content": "first question"}},
-            {"type": "assistant", "uuid": "a1",
-             "timestamp": "2026-04-07T10:00:01Z",
-             "message": {"role": "assistant", "id": "msg_A",
-                         "model": "claude-sonnet-4-6",
-                         "content": [{"type": "text", "text": "Answer."}],
-                         "usage": {"input_tokens": 10, "output_tokens": 5,
-                                   "cache_creation_input_tokens": 0,
-                                   "cache_read_input_tokens": 100}}},
-            {"type": "permission-mode", "permissionMode": "acceptEdits",
-             "timestamp": "2026-04-07T10:00:02Z", "sessionId": "s1"},
-        ])
+        path = self._write(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-07T10:00:00Z",
+                    "message": {"role": "user", "content": "first question"},
+                },
+                {
+                    "type": "assistant",
+                    "uuid": "a1",
+                    "timestamp": "2026-04-07T10:00:01Z",
+                    "message": {
+                        "role": "assistant",
+                        "id": "msg_A",
+                        "model": "claude-sonnet-4-6",
+                        "content": [{"type": "text", "text": "Answer."}],
+                        "usage": {
+                            "input_tokens": 10,
+                            "output_tokens": 5,
+                            "cache_creation_input_tokens": 0,
+                            "cache_read_input_tokens": 100,
+                        },
+                    },
+                },
+                {
+                    "type": "permission-mode",
+                    "permissionMode": "acceptEdits",
+                    "timestamp": "2026-04-07T10:00:02Z",
+                    "sessionId": "s1",
+                },
+            ],
+        )
         rows = measure_usage.parse_transcript(path)["rows"]
         kinds = [r["kind"] for r in rows]
         assert kinds == ["user", "turn", "permission-mode"]
@@ -2132,9 +2745,9 @@ class TestNonturnRows:
 
 class TestShortAgentId:
     def test_path(self):
-        assert measure_usage.short_agent_id(
-            "/x/agent-a048f2eedd306ffdc.jsonl"
-        ) == "a048"
+        assert (
+            measure_usage.short_agent_id("/x/agent-a048f2eedd306ffdc.jsonl") == "a048"
+        )
 
     def test_bare(self):
         assert measure_usage.short_agent_id("agent-abcdef.jsonl") == "abcd"
@@ -2144,9 +2757,12 @@ class TestShortAgentId:
 # turns_table render_turns_report
 # ---------------------------------------------------------------------------
 
+
 class TestRenderTurnsReport:
     def test_basic_session(self):
-        main_parsed = measure_usage.parse_transcript(str(FIXTURES / "basic_session.jsonl"))
+        main_parsed = measure_usage.parse_transcript(
+            str(FIXTURES / "basic_session.jsonl")
+        )
         out = measure_usage.render_turns_report(main_parsed, [])
         assert "Main session" in out
         assert "4 turns" in out
@@ -2189,6 +2805,7 @@ class TestRenderTurnsReport:
 # turn_seq
 # ---------------------------------------------------------------------------
 
+
 class TestTurnSeq:
     def test_sonnet_cache_read_dominated(self):
         row = {
@@ -2217,6 +2834,7 @@ class TestTurnSeq:
 # Layering: the plain CLI must never pull in Textual
 # ---------------------------------------------------------------------------
 
+
 class TestPlainDoesNotImportTextual:
     """The /measure-usage skill runs `python -m claude_measure_usage.plain`
     and must not load Textual as a side effect — the skill environment
@@ -2235,8 +2853,7 @@ class TestPlainDoesNotImportTextual:
             "import claude_measure_usage.plain  # noqa: F401\n"
             "from claude_measure_usage.plain import commands  # noqa: F401\n"
             "bad = sorted(m for m in sys.modules if m == 'textual' or m.startswith('textual.'))\n"
-            "assert not bad, 'textual leaked into plain: ' + repr(bad)\n"
-            % PACKAGE_DIR
+            "assert not bad, 'textual leaked into plain: ' + repr(bad)\n" % PACKAGE_DIR
         )
         result = subprocess.run(
             [sys.executable, "-c", code],

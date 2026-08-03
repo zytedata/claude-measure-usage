@@ -30,6 +30,7 @@ than prose/thinking.
 Estimates only ever raise a turn's output: the booked partial is a
 lower bound from the API.
 """
+
 import json
 
 # Assistant output averages ~2.6 chars per token on real Claude Code
@@ -214,9 +215,7 @@ class OutputEstimator:
             row["out_estimated"] = True
             counts["turn_count"] += 1
             if model not in fits:
-                fits[model] = _fit_output_model(
-                    self._fit_samples.get(model, [])
-                )
+                fits[model] = _fit_output_model(self._fit_samples.get(model, []))
             fit = fits[model]
             if fit is not None:
                 a, b, c = fit
