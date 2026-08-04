@@ -75,6 +75,7 @@ packages = ["plugins/measure-usage/skills/measure-usage/claude_measure_usage"]
 [tool.hatch.build.targets.sdist]
 include = [
     "plugins/measure-usage/skills/measure-usage/claude_measure_usage/**",
+    "CHANGELOG.md",
     "README.md",
     "pyproject.toml",
     "tests/**",
