@@ -1,34 +1,63 @@
 # claude-measure-usage
 
-An interactive terminal UI for inspecting token usage and cost of
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
+A read-only debugger over the [Claude
+Code](https://docs.anthropic.com/en/docs/claude-code) session transcripts
+in `~/.claude/projects/`. It answers the question *"where did all those
+tokens go?"* — across projects, across sessions within a project, across
+turns within a session, and down into every spawned subagent, recursively.
 
-`claude-measure-usage` is a read-only debugger over the session transcripts
-Claude Code writes to `~/.claude/projects/`. It answers the question
-*"where did all those tokens go?"* — across projects, across sessions
-within a project, across turns within a session, and down into every
-spawned subagent, recursively.
+It has three front-ends over one analysis engine:
 
-Built with [Textual](https://textual.textualize.io/). Requires Python 3.10+.
+- a **Python library**, for scripting your own analysis;
+- an **interactive terminal UI**, built with
+  [Textual](https://textual.textualize.io/);
+- a **`/measure-usage` slash command**, for checking usage from inside a
+  live Claude Code session.
+
+Requires Python 3.10+.
 
 ## Install
 
-Not on PyPI yet — install straight from GitHub:
-
 ```bash
-uv tool install git+https://github.com/zytedata/claude-measure-usage
+pip install claude-measure-usage
 ```
 
-or from a local checkout (editable, for development):
+That gets you both the library and the `claude-measure-usage` command
+that launches the TUI. If the TUI is all you want, an isolated tool
+install keeps it out of your project's dependencies:
 
 ```bash
-uv tool install --editable /path/to/claude-measure-usage
-# or: pip install -e /path/to/claude-measure-usage
+uv tool install claude-measure-usage
 ```
 
-Then run `claude-measure-usage` from anywhere.
+The slash command installs separately, [as a
+plugin](#the-measure-usage-slash-command).
 
-## What it looks like
+> To track unreleased changes, install from a git checkout instead:
+> `uv tool install git+https://github.com/zytedata/claude-measure-usage`,
+> or `uv tool install --editable /path/to/claude-measure-usage` for
+> development.
+
+## The library
+
+```python
+from claude_measure_usage import (
+    compute_metrics,
+    find_transcript_path,
+    format_metrics,
+)
+
+path = find_transcript_path("e75ec368-…", cwd="/path/to/project")
+metrics = compute_metrics(path, start_ts=0)  # 0 = the whole session
+
+print(metrics["total_tokens"])  # raw count, subagents included
+print(format_metrics(metrics))  # the same summary the slash command prints
+```
+
+`parse_transcript` and `build_agent_tree` give you the raw per-turn rows and
+the subagent tree if you want to compute something `compute_metrics` doesn't.
+
+## The TUI
 
 ![Session detail screen: per-turn cost table with subagent rows](docs/session-detail.svg)
 
@@ -167,7 +196,7 @@ measurements:
 Use them for relative comparisons (which tools are expensive?) rather
 than absolute numbers.
 
-## Bonus: the `/measure-usage` slash command
+## The `/measure-usage` slash command
 
 The same analysis engine also ships as a Claude Code plugin, so you can
 check usage from inside a live session without leaving it:
