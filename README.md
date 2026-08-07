@@ -19,7 +19,7 @@ Requires Python 3.10+.
 ## Install
 
 ```bash
-pip install claude-measure-usage
+pip install claude-measure-usage[tui]
 ```
 
 That gets you both the library and the `claude-measure-usage` command
@@ -27,15 +27,20 @@ that launches the TUI. If the TUI is all you want, an isolated tool
 install keeps it out of your project's dependencies:
 
 ```bash
-uv tool install claude-measure-usage
+uv tool install claude-measure-usage[tui]
 ```
+
+Drop the `[tui]` extra to install the library alone, without the
+dependencies that only the TUI needs — the right choice when you depend
+on `claude-measure-usage` from another package and only import it.
 
 The slash command installs separately, [as a
 plugin](#the-measure-usage-slash-command).
 
 > To track unreleased changes, install from a git checkout instead:
-> `uv tool install git+https://github.com/zytedata/claude-measure-usage`,
-> or `uv tool install --editable /path/to/claude-measure-usage` for
+> `uv tool install "claude-measure-usage[tui] @
+> git+https://github.com/zytedata/claude-measure-usage"`, or `uv tool
+> install --editable "/path/to/claude-measure-usage[tui]"` for
 > development.
 
 ## The library

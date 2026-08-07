@@ -2863,3 +2863,23 @@ class TestPlainDoesNotImportTextual:
         assert result.returncode == 0, (
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
         )
+
+    def test_entry_point_without_textual_points_at_the_extra(self):
+        """Textual ships as the ``tui`` extra, so the console script can run
+        in an environment that doesn't have it."""
+        import subprocess
+
+        code = (
+            "import sys\n"
+            "sys.path.insert(0, %r)\n"
+            "sys.modules['textual'] = None  # every textual import now fails\n"
+            "from claude_measure_usage.__main__ import main\n"
+            "main()\n" % PACKAGE_DIR
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 1
+        assert "claude-measure-usage[tui]" in result.stderr
