@@ -128,7 +128,7 @@ def read_subagent_meta(jsonl_path):
     """
     meta_path = Path(jsonl_path).with_suffix(".meta.json")
     try:
-        return json.loads(meta_path.read_text())
+        return json.loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -170,7 +170,7 @@ def find_subagent_transcripts(transcript_path, start_ts):
 def _iter_transcript(path):
     """Yield parsed JSON objects from a JSONL file, skipping bad lines."""
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
