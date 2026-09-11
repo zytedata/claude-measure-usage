@@ -56,6 +56,12 @@ tag = true
 tag_name = "{new_version}"
 
 [[tool.bumpversion.files]]
+filename = "CHANGELOG.md"
+search = "\\(unreleased\\)$"
+replace = "({now:%Y-%m-%d})"
+regex = true
+
+[[tool.bumpversion.files]]
 filename = "plugins/measure-usage/.claude-plugin/plugin.json"
 
 # Anchored so it does not also match `current_version` above.
