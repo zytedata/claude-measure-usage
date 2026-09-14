@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.1.1 (2026-09-14)
 
 Fixed transcripts failing to parse on systems where the default text encoding is not UTF-8, such as Windows.
 

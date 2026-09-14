@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-measure-usage"
-version = "0.1.0"
+version = "0.1.1"
 description = "Interactive TUI for debugging token usage of Claude Code sessions"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -49,7 +49,7 @@ dev = [
 select = ["E4", "E7", "E9", "F"]
 
 [tool.bumpversion]
-current_version = "0.1.0"
+current_version = "0.1.1"
 commit = true
 message = "Bump version: {current_version} → {new_version}"
 tag = true
