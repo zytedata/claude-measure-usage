@@ -189,6 +189,25 @@ class TestParseTranscript:
         assert result["turn_count"] == 0
         assert result["tokens_by_model"] == {}
 
+    def test_non_ascii(self, tmp_path):
+        entry = {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "model": "claude-opus-4-6",
+                "content": [{"type": "text", "text": "Done 🎉"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+            "uuid": "a1",
+            "timestamp": "2026-04-07T10:00:00Z",
+        }
+        transcript = tmp_path / "s.jsonl"
+        transcript.write_text(
+            json.dumps(entry, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        result = measure_usage.parse_transcript(str(transcript))
+        assert result["turn_count"] == 1
+
 
 # ---------------------------------------------------------------------------
 # find_subagent_transcripts
@@ -210,6 +229,14 @@ class TestReadSubagentMeta:
         jsonl.write_text("")
         meta = measure_usage.read_subagent_meta(str(jsonl))
         assert meta == {}
+
+    def test_non_ascii(self, tmp_path):
+        (tmp_path / "agent-x.meta.json").write_text(
+            json.dumps({"description": "résumé 🎉"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        meta = measure_usage.read_subagent_meta(str(tmp_path / "agent-x.jsonl"))
+        assert meta["description"] == "résumé 🎉"
 
 
 class TestFindSubagentTranscripts:

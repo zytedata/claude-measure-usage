@@ -86,39 +86,32 @@ class TestDiscoverProjects:
         assert entries[0].last_activity == proj.stat().st_mtime
 
 
-class TestDecodeCwd:
-    # The decode step cannot be tested with pytest's ``tmp_path``
-    # because pytest's fixture dir already contains dashes
-    # (``pytest-of-<user>``, ``pytest-123``) — the encode/decode
-    # round-trip through ``-`` → ``/`` is lossy on any path with
-    # literal dashes, which is the whole reason the decoder uses a
-    # filesystem existence check as a tiebreaker. These tests mock
-    # ``Path.exists`` instead so the fixture dir doesn't leak in.
+class TestProjectCwd:
+    @staticmethod
+    def _project(root, name, *lines):
+        proj = root / name
+        proj.mkdir()
+        (proj / "a.jsonl").write_text("\n".join(lines) + "\n")
+        return proj
 
-    def test_decoded_when_candidate_exists(self, monkeypatch):
-        monkeypatch.setattr(Path, "exists", lambda self: True)
-        monkeypatch.setattr(Path, "home", lambda: Path("/somewhere-else"))
-        assert discovery._decode_cwd("-home-me-proj") == "/home/me/proj"
+    def test_cwd_from_first_record_that_has_one(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "elsewhere")
+        proj = self._project(
+            tmp_path, "-tmp-svn-proj", '{"type": "mode"}', '{"cwd": "/tmp/svn-proj"}'
+        )
+        assert discovery._project_entry(proj).cwd_display == "/tmp/svn-proj"
 
-    def test_fallback_when_candidate_missing(self, monkeypatch):
-        monkeypatch.setattr(Path, "exists", lambda self: False)
-        encoded = "-definitely-not-a-real-path-xyzzy"
-        assert discovery._decode_cwd(encoded) == encoded
+    def test_fallback_to_dir_name_without_cwd(self, tmp_path):
+        proj = self._project(tmp_path, "-tmp-proj", '{"type": "mode"}')
+        assert discovery._project_entry(proj).cwd_display == "-tmp-proj"
 
-    def test_home_collapse_when_under_home(self, monkeypatch):
-        monkeypatch.setattr(Path, "exists", lambda self: True)
-        monkeypatch.setattr(Path, "home", lambda: Path("/home/me"))
-        assert discovery._decode_cwd("-home-me-svn-proj") == "~/svn/proj"
-
-    def test_home_collapse_exact_home(self, monkeypatch):
-        monkeypatch.setattr(Path, "exists", lambda self: True)
-        monkeypatch.setattr(Path, "home", lambda: Path("/home/me"))
-        assert discovery._decode_cwd("-home-me") == "~"
-
-    def test_home_collapse_outside_home(self, monkeypatch):
-        monkeypatch.setattr(Path, "exists", lambda self: True)
-        monkeypatch.setattr(Path, "home", lambda: Path("/home/me"))
-        assert discovery._decode_cwd("-var-log-foo") == "/var/log/foo"
+    def test_home_collapse(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", lambda: home)
+        assert discovery._collapse_home(str(home / "svn-proj")) == "~/svn-proj"
+        assert discovery._collapse_home(str(home)) == "~"
+        outside = str(tmp_path / "var" / "log")
+        assert discovery._collapse_home(outside) == outside
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -684,9 +677,9 @@ class TestProjectForCwd:
     def test_matches_existing_dir(self, tmp_path):
         root = tmp_path / "projects"
         root.mkdir()
-        proj = root / "-home-me-work"
+        proj = root / "-home-me-my-work"
         proj.mkdir()
-        result = discovery.project_for_cwd("/home/me/work", projects_root=root)
+        result = discovery.project_for_cwd("/home/me/my.work", projects_root=root)
         assert result == proj
 
     def test_no_match_returns_none(self, tmp_path):

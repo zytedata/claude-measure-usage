@@ -1,9 +1,9 @@
 """Filesystem discovery of Claude Code projects and sessions.
 
 The Claude Code CLI stores each cwd's sessions in a directory under
-``~/.claude/projects/`` whose name is the cwd with ``/`` replaced by
-``-``. Inside each such directory live one ``.jsonl`` file per
-session. This module walks that tree and exposes structured records
+``~/.claude/projects/`` whose name is the cwd with every
+non-alphanumeric character replaced by ``-``. Inside each such
+directory live one ``.jsonl`` file per session. This module walks that tree and exposes structured records
 for the TUI to render.
 
 No transcript parsing happens here — token totals and turn counts
@@ -15,11 +15,12 @@ waiting for any transcripts to be read.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..metrics import model_aware_cost_breakdown
-from ..parse import parse_transcript
+from ..parse import _iter_transcript, parse_transcript
 
 
 def default_projects_root() -> Path:
@@ -37,13 +38,12 @@ class ProjectEntry:
     """A discovered Claude Code project directory."""
 
     # Directory under ~/.claude/projects/ that holds this project's
-    # .jsonl files. The name is the cwd with / replaced by -.
+    # .jsonl files.
     project_dir: Path
 
-    # Best-effort decoded cwd for display. Falls back to the raw
-    # directory name when decoding to an existing filesystem path
-    # fails (because the encoding is ambiguous when the original
-    # path contained literal dashes).
+    # The cwd recorded in the project's transcripts, with the home
+    # directory collapsed to ~. Falls back to the raw directory name
+    # when the project has no transcript that records a cwd.
     cwd_display: str
 
     # Number of .jsonl session files in the project directory.
@@ -83,37 +83,34 @@ def _project_entry(project_dir: Path) -> ProjectEntry:
         last_activity = project_dir.stat().st_mtime
     return ProjectEntry(
         project_dir=project_dir,
-        cwd_display=_decode_cwd(project_dir.name),
+        cwd_display=_project_cwd(project_dir, sessions),
         session_count=len(sessions),
         last_activity=last_activity,
     )
 
 
-def _decode_cwd(encoded: str) -> str:
-    """Decode a project-dir name back to a displayable cwd.
+def _project_cwd(project_dir: Path, sessions: list[Path]) -> str:
+    """Return the cwd recorded in the project's transcripts.
 
-    Claude Code encodes the cwd by replacing ``/`` with ``-`` — a
-    lossy encoding because literal dashes in path components become
-    indistinguishable from separators. We take a best-effort approach:
-    replace every ``-`` with ``/`` and check the result against the
-    filesystem; if it exists, use it. Otherwise fall back to the raw
-    encoded string so users still see *something* meaningful.
-
-    Also collapses ``$HOME`` to ``~`` for compactness.
+    The directory name cannot be decoded back into the cwd, since
+    every non-alphanumeric character in the cwd is encoded as ``-``,
+    so the cwd is taken from the first transcript record that
+    carries one.
     """
-    candidate = "/" + encoded.lstrip("-").replace("-", "/")
-    if Path(candidate).exists():
-        return _collapse_home(candidate)
-    return encoded
+    for path in sessions:
+        for entry in _iter_transcript(path):
+            cwd = entry.get("cwd")
+            if cwd:
+                return _collapse_home(cwd)
+    return project_dir.name
 
 
 def _collapse_home(path: str) -> str:
-    home = str(Path.home())
-    if path == home:
-        return "~"
-    if path.startswith(home + "/"):
-        return "~" + path[len(home) :]
-    return path
+    try:
+        relative = Path(path).relative_to(Path.home())
+    except ValueError:
+        return path
+    return "~" if relative == Path() else "~/" + relative.as_posix()
 
 
 @dataclass(frozen=True)
@@ -289,7 +286,7 @@ def project_for_cwd(
     if cwd is None:
         cwd = os.getcwd()
     root = projects_root if projects_root is not None else default_projects_root()
-    encoded = cwd.replace("/", "-")
+    encoded = re.sub(r"[^A-Za-z0-9]", "-", cwd)
     candidate = root / encoded
     if candidate.is_dir():
         return candidate
