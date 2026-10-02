@@ -2,7 +2,7 @@
 
 Usage, from the repo root:
 
-    uv run python docs/screenshot/regenerate.py
+    uv run --extra tui python docs/screenshot/regenerate.py
 
 The fixture under ``docs/screenshot/fixture/`` is a real Claude Code
 session (produced by ``claude -p`` in a throwaway weather-CLI project,

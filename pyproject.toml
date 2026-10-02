@@ -26,9 +26,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Debuggers",
 ]
-dependencies = [
-    "textual>=0.80",
-]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/zytedata/claude-measure-usage"
@@ -38,6 +36,9 @@ Issues = "https://github.com/zytedata/claude-measure-usage/issues"
 claude-measure-usage = "claude_measure_usage.__main__:main"
 
 [project.optional-dependencies]
+tui = [
+    "textual>=0.80",
+]
 dev = [
     "pytest",
 ]
